@@ -1,4 +1,5 @@
 import { createTrialSetup } from './trialSetup.ts';
+import { mountRepositoryStars } from './repositoryStars.ts';
 import type { TrialSelection } from './trialSetup.ts';
 import { createSpecimen } from "./specimen.ts";
 import type { SpecimenSignals } from "./specimen.ts";
@@ -6,6 +7,7 @@ import { createStation } from "./actuators.ts";
 import { createBrainView } from "./brainView.ts";
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
+mountRepositoryStars();
 const signals: SpecimenSignals = {
   active: false,
   paused: false,
