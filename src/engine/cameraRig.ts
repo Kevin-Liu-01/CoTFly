@@ -205,6 +205,7 @@ export interface CameraRig {
   spectateZoom(notches: number): void;
   stopSpectate(): void;
   enterSniper(): void;
+  trackSniperTarget(point: THREE.Vector3, dt: number): void;
   exitSniper(restorePreviousOrbit?: boolean): void;
   getAimRay(outOrigin: THREE.Vector3, outDirection: THREE.Vector3): void;
   setExternalPose(position: THREE.Vector3, target: THREE.Vector3, fovDeg?: number): void;
@@ -1115,6 +1116,20 @@ export function createCameraRig(
 
     /** Leave spectate (battle end / garage). The next owner sets the pose. */
     stopSpectate(): void { spec = null; },
+
+    /** Follow an autonomous firing solution with the normal live scope rig. */
+    trackSniperTarget(point: THREE.Vector3, dt: number): void {
+      const player = getPlayer();
+      if (!player) return;
+      if (rig.mode !== 'SNIPER') {
+        rig.aimPoint.copy(point);
+        aimTouched = true;
+        rig.enterSniper();
+      }
+      // Use the gun's actual anchor for elevation and parallax. Normal rig
+      // updates retain recoil, scope effects, visibility, and target smoothing.
+      updateAutoAim(player, dt, point);
+    },
 
     /**
      * Enter sniper mode. Keeps the shared aim angles (no view snap); the own

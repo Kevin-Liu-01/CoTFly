@@ -260,3 +260,60 @@ assert.equal(pressPlayer.input.fire,false,'next shot waits for the foreleg to re
 pressTicks(1);
 assert.equal(pressPlayer.input.fire,true,'physical contact enables the next shot');
 console.log('fly fire button: shot receipts, visible hold, reload release, and repeat contact PASS');
+
+// Scope ownership follows a real spotted firing solution, independent of reload.
+let scopeVisible = true, scopeBlocked = false, cameraTarget = null, scopeReleases = 0, cameraCalls = 0;
+const scopePlayer = entity('scope-player', 'player', 0), scopeEnemy = entity('scope-enemy', 'enemy', 100);
+scopeEnemy.state.pos.y = 12;
+const scopeGame = {phase:'battle', player:scopePlayer, tanks:[scopePlayer,scopeEnemy], timeS:0, result:null};
+const scopeRuntime = installFlyRuntime({
+  game:scopeGame, start:async()=>{}, isSpotted:()=>scopeVisible,
+  raycast:()=>scopeBlocked ? {dist:5} : null,
+  follow: (_yaw, point) => {cameraTarget = point?.clone() ?? null; cameraCalls++;},
+  releaseScope: () => {scopeReleases++; cameraTarget=null;},
+});
+await request('start');
+const scopeTicks = count => {for(let i=0;i<count;i++){scopeGame.timeS+=1/60;scopeRuntime.beforeStep();}};
+scopePlayer.state.turretYaw = 0.15;
+scopeTicks(5);
+assert.equal(cameraTarget,null,'scope waits for the aiming foreleg to reach its control');
+scopeTicks(1);
+assert.deepEqual(cameraTarget,scopeEnemy.state.pos.clone().add(new Vector3(0,1.65,0)), 'scope follows the visible target at its actual elevation');
+assert.equal(scopePlayer.input.fire,false,'scope enters while lining up, before firing alignment');
+scopePlayer.state.turretYaw=0;
+scopePlayer.combat.reload.t=5;
+scopeTicks(30);
+assert.ok(cameraTarget,'scope remains on target during reload');
+scopePlayer.state.turretYaw=0.3;
+scopeTicks(3);
+assert.ok(cameraTarget,'entry threshold jitter does not flicker out of scope');
+scopePlayer.state.turretYaw=0.6;
+scopeTicks(1);
+assert.equal(cameraTarget,null,'a wide turret turn restores the wider view immediately');
+scopePlayer.state.turretYaw=0;
+scopeTicks(10);
+assert.ok(cameraTarget);
+scopeVisible=false;
+scopeTicks(1);
+assert.equal(cameraTarget,null,'lost spotting exits scope before the look arm finishes moving');
+scopeVisible=true;
+scopeTicks(10);
+assert.ok(cameraTarget);
+scopeBlocked=true;
+scopeTicks(1);
+assert.equal(cameraTarget,null,'blocked line of fire exits scope');
+scopeBlocked=false;
+scopeTicks(180);
+assert.ok(cameraTarget);
+await request('pilot',{enabled:false});
+assert.equal(scopeReleases,1,'human handoff releases the fly scope once');
+const handoffCalls=cameraCalls;
+scopeTicks(20);
+assert.equal(cameraCalls,handoffCalls,'fly cannot overwrite human camera control');
+await request('pilot',{enabled:true});
+scopeTicks(10);
+assert.ok(cameraTarget);
+scopeGame.result='victory';
+scopeTicks(1);
+assert.equal(scopeReleases,2,'battle completion releases scope');
+console.log('fly scope: physical aim, elevation, reload hold, hysteresis, visibility and camera ownership PASS');

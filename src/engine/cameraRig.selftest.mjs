@@ -184,3 +184,38 @@ try {
 }
 
 console.log('cameraRig.selftest: live gun-hold sight, snap-free release, and mouse/minimap handedness passed');
+
+{
+  const scopeCamera = new PerspectiveCamera(60, 16 / 9, 0.1, 2000);
+  const scopeRoot = new Object3D();
+  const scopePlayer = {
+    state: {pos:new Vector3(), yaw:0, turretYaw:0},
+    input: {aimPoint:new Vector3()},
+    visual: {root:scopeRoot, turretTopWorld:out=>out.set(0,2,0), gunPivotWorld:out=>out.set(0,1.7,0.2)},
+  };
+  const scopeRig = createCameraRig(scopeCamera, {
+    heightField:{getHeightAt:()=>0}, raycast:()=>null, getPlayer:()=>scopePlayer,
+  });
+  const target = new Vector3(8,14,110), aimDirection = new Vector3();
+  scopeRig.snapArcade(1,0,-0.15);
+  const orbitFov=scopeCamera.fov;
+  scopeRig.trackSniperTarget(target,1/30);
+  scopeRig.update(1/60,idle);
+  assert.equal(scopeRig.mode,'SNIPER');
+  assert.equal(scopeRoot.visible,false,'live scope hides the own tank');
+  assert.ok(scopeCamera.fov<orbitFov,'live scope applies actual optical zoom');
+  scopeCamera.getWorldDirection(aimDirection);
+  assert.ok(aimDirection.angleTo(target.clone().sub(scopeCamera.position))<0.01,
+    'scope centers the elevated target from the gun anchor');
+  target.set(-12,22,90);
+  for(let i=0;i<45;i++) {scopeRig.trackSniperTarget(target,1/30);scopeRig.update(1/30,idle);}
+  scopeCamera.getWorldDirection(aimDirection);
+  assert.ok(aimDirection.angleTo(target.clone().sub(scopeCamera.position))<0.01,
+    'normal live scope tracks a moving target without an external camera pose');
+  assert.equal(scopeRig.externalActive,false);
+  scopeRig.exitSniper(true);
+  scopeRig.update(1/60,idle);
+  assert.equal(scopeRoot.visible,true,'human handoff restores the hull');
+  assert.equal(scopeRig.mode,'ARCADE');
+}
+console.log('cameraRig.selftest: autonomous scope optics, hull visibility, elevation and live target tracking passed');

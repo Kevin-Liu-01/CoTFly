@@ -54,7 +54,8 @@ export interface FlyPorts {
     direction: Vector3,
     distance: number,
   ): { dist: number } | null;
-  follow(yaw: number): void;
+  follow(yaw: number, scopeTarget: Vector3 | null): void;
+  releaseScope?(): void;
   releaseHumanControls?(): void;
 }
 export interface FlyRuntime {
@@ -73,7 +74,8 @@ export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
     lastReport = -1,
     lastCamera = -1,
     targetId: string | null = null,
-    cameraYaw = 0;
+    cameraYaw = 0,
+    scoped = false;
   const trialId = new URLSearchParams(location.search).get("trial") ?? "";
   let lastShotAt = -Infinity;
   ports.onShot?.(() => { if (enabled) lastShotAt = ports.game.timeS; });
@@ -122,8 +124,13 @@ export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
         !player.combat ||
         player.combat.destroyed ||
         game.result
-      )
+      ) {
+        if (scoped) {
+          scoped = false;
+          ports.releaseScope?.();
+        }
         return;
+      }
       const state = player.state;
       origin.copy(state.pos);
       origin.y += 2;
@@ -254,8 +261,15 @@ export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
           (sense.targetBearing ??
             state.yaw + Math.sin(game.timeS * 0.32) * 0.55) - cameraYaw,
         ) * 0.12;
-      if (station.left.contact && game.timeS - lastCamera >= 1 / 30) {
-        ports.follow(cameraYaw);
+      // Scope as the turret lines up, before the fire press. Keep the sight
+      // through reloads; the wider exit angle avoids flicker on a moving target.
+      const shouldScope = station.left.contact && sense.targetBearing !== null &&
+        !sense.blocked && motor.throttle >= 0 &&
+        Math.abs(wrapAngle(sense.targetBearing - state.yaw - state.turretYaw)) < (scoped ? 0.5 : 0.2);
+      const scopeChanged = shouldScope !== scoped;
+      scoped = shouldScope;
+      if (scopeChanged || (station.left.contact && game.timeS - lastCamera >= 1 / 30)) {
+        ports.follow(cameraYaw, scoped ? pendingAim : null);
         lastCamera = game.timeS;
       }
     },
@@ -293,6 +307,7 @@ export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
         throttle: enabled ? motor.throttle : player.input.throttle,
         steer: enabled ? motor.steer : player.input.steer,
         fire: player.input.fire,
+        scoped,
         shotFlash: enabled ? Math.max(0, 1 - (game.timeS - lastShotAt) / 0.18) : 0,
         arms: { left: { ...station.left }, right: { ...station.right } },
         missileAvailable: !!player.spec.gun?.shells.some(
@@ -360,6 +375,8 @@ export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
         sugarUntil = ports.game.timeS + 15;
         break;
       case "pilot":
+        if (scoped) ports.releaseScope?.();
+        scoped = false;
         enabled = event.data.enabled === true;
         document.documentElement.dataset.flyControl = enabled ? "auto" : "human";
         runtime.paused = false;

@@ -3222,7 +3222,11 @@ if (flyEmbedRequested) {
     }); },
     isSpotted: (id) => !!game.spotting?.isSpotted(id, 'player', game.player),
     raycast: (origin, direction, distance) => currentWorld()?.raycast(origin, direction, distance) ?? null,
-    follow: (yaw) => rig.snapArcade(1, yaw, -0.15),
+    follow: (yaw, scopeTarget) => {
+      if (scopeTarget) rig.trackSniperTarget(scopeTarget, 1 / 30);
+      else rig.snapArcade(1, yaw, -0.15);
+    },
+    releaseScope: () => rig.exitSniper(true),
     releaseHumanControls: () => { settings.close({ noRelock: true }); input.releaseLock(); },
   });
 }
