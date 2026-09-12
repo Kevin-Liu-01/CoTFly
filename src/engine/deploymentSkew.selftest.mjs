@@ -48,6 +48,16 @@ assert.match(resetResponse.headers.get('set-cookie') ?? '', /Max-Age=0/,
 assert.equal(resetResponse.headers.get('cache-control'), 'private, no-store',
   'the deployment-reset redirect must never enter an edge or browser cache');
 
+for (const route of ['/', '/index.html', '/fly', '/fly/', '/fly.html', '/game.html']) {
+  assert.ok(middlewareConfig.matcher.includes(route));
+  const response = await middleware(new Request(`https://fly.kevinliu.studio${route}`, {
+    headers: { cookie: '__vdpl=dpl_previous' },
+  }));
+  assert.match(response.headers.get('set-cookie') ?? '', /__vdpl=;.*Max-Age=0/,
+    `${route} must clear an old game pin before loading the current console assets`);
+  assert.equal(response.headers.get('location'), null, 'ordinary console entry must not redirect');
+}
+
 const indexShell = `<!doctype html><html><head>
   <title>Original</title>
   <meta name="description" content="Original">

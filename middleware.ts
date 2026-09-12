@@ -63,7 +63,7 @@ export const config = {
   // Asset requests bypass middleware and inherit the cookie set on the HTML
   // response before the browser begins parsing modulepreload links.
   matcher: [
-    '/', '/index.html', '/studio', '/studio/', '/gallery', '/gallery/', '/gallery.html',
+    '/', '/index.html', '/fly', '/fly/', '/fly.html', '/game.html', '/studio', '/studio/', '/gallery', '/gallery/', '/gallery.html',
     '/cn', '/cn/:path*',
   ],
 };
@@ -84,7 +84,12 @@ export default async function middleware(request: Request): Promise<Response> {
       },
     });
   }
-  const cookie = deploymentPinCookie(
+  // CoTFly's static console and battle must load assets from the current
+  // deployment together. The inherited game pin outlives a console refresh
+  // and otherwise routes its new hashed script to an older deployment.
+  const entryPath = new URL(request.url).pathname;
+  const consoleEntry = ['/', '/index.html', '/fly', '/fly/', '/fly.html', '/game.html'].includes(entryPath);
+  const cookie = consoleEntry ? deploymentResetCookie() : deploymentPinCookie(
     request.headers.get('cookie'),
     process.env.VERCEL_DEPLOYMENT_ID,
   );
