@@ -3202,6 +3202,9 @@ if (flyEmbedRequested) {
       await ensureTankBuilder(tankId);
       return beginSoloBattle({specId:tankId,mapId,randomRoster:true});
     },
+    onShot: (listener) => { bus.on('shell:fired', (event) => {
+      if (event && typeof event === 'object' && 'shooterId' in event && event.shooterId === game.player?.id) listener();
+    }); },
     setFire: (pressed) => pressed ? input.pressVirtual('fire') : input.releaseVirtual('fire'),
     action: (action) => {
       if(action==='repair') input.tapVirtual('consumable1');

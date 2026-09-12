@@ -79,6 +79,7 @@ function resetTelemetry() {
   signals.paused = false;
   signals.sugar = false;
   signals.fire = false;
+  signals.shotFlash = 0;
   $("pulse").classList.remove("active");
   signals.throttle = 0;
   signals.steer = 0;
@@ -291,6 +292,7 @@ window.addEventListener("message", (event) => {
   signals.throttle = d.throttle;
   signals.steer = d.steer;
   signals.fire = d.fire;
+  signals.shotFlash = d.shotFlash ?? 0;
   signals.sugar = d.sugar;
   signals.bearing = d.bearing;
   signals.gaitLeft = d.gaitLeft;

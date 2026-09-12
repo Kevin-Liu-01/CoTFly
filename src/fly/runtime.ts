@@ -47,6 +47,7 @@ export interface FlyPorts {
     action: "repair" | "firstAid" | "extinguish" | "missile" | "cannon",
   ): void;
   setFire?(pressed: boolean): void;
+  onShot?(listener: () => void): void;
   onConsumableUsed?(listener: (slot: number, readyAt: number) => void): void;
   raycast(
     origin: Vector3,
@@ -74,6 +75,8 @@ export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
     targetId: string | null = null,
     cameraYaw = 0;
   const trialId = new URLSearchParams(location.search).get("trial") ?? "";
+  let lastShotAt = -Infinity;
+  ports.onShot?.(() => { if (enabled) lastShotAt = ports.game.timeS; });
   const controller = createFlyController();
   const station = createStation();
   const kitReadyAt = [0, 0, 0];
@@ -223,7 +226,7 @@ export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
           ? "repair"
           : wantsMissile !== guided && missileSlot >= 0 && hasCannon
             ? "missile"
-            : motor.fire
+            : motor.fire && (player.combat.reload.t <= 0.09 || game.timeS - lastShotAt < 0.12)
               ? "fire"
               : "rest",
         1 / 60,
@@ -290,6 +293,7 @@ export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
         throttle: enabled ? motor.throttle : player.input.throttle,
         steer: enabled ? motor.steer : player.input.steer,
         fire: player.input.fire,
+        shotFlash: enabled ? Math.max(0, 1 - (game.timeS - lastShotAt) / 0.18) : 0,
         arms: { left: { ...station.left }, right: { ...station.right } },
         missileAvailable: !!player.spec.gun?.shells.some(
           (shell) => shell.guided,

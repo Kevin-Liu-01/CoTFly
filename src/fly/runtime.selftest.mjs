@@ -227,3 +227,36 @@ assert.equal(messages.at(-1).m.type, 'started');
 loadingRuntime.afterStep();
 assert.equal(messages.at(-1).m.type, 'telemetry', 'reveal only follows completed deployment');
 console.log('fly trial entry: selection forwarding and deployment reveal gate PASS');
+
+// A confirmed shot depresses the button briefly, then the foreleg releases
+// during reload and must reach the button again before the next shot.
+let shotReceipt;
+const pressPlayer = entity('press-player', 'player', 0), pressEnemy = entity('press-enemy', 'enemy', 100);
+const pressGame = {phase:'battle', player:pressPlayer, tanks:[pressPlayer,pressEnemy], timeS:0, result:null};
+const pressRuntime = installFlyRuntime({
+  game:pressGame, start:async()=>{}, isSpotted:()=>true, raycast:()=>null, follow(){},
+  onShot: listener => {shotReceipt = listener;},
+});
+await request('start');
+const pressTicks = count => {for(let i=0;i<count;i++){pressGame.timeS+=1/60;pressRuntime.beforeStep();}};
+pressTicks(30);
+assert.equal(pressPlayer.input.fire,true);
+pressRuntime.afterStep();
+assert.equal(messages.at(-1).m.shotFlash,0,'fire intent alone never invents a shot flash');
+shotReceipt();
+pressPlayer.combat.reload.t=6;
+pressTicks(3);
+pressRuntime.afterStep();
+assert.ok(messages.at(-1).m.shotFlash>0,'confirmed shot reaches the visible cockpit');
+assert.equal(messages.at(-1).m.arms.right.key,'fire');
+pressTicks(15);
+pressRuntime.afterStep();
+assert.equal(pressPlayer.input.fire,false,'release the trigger during a long reload');
+assert.equal(messages.at(-1).m.arms.right.key,'rest');
+assert.equal(messages.at(-1).m.shotFlash,0,'shot flash expires in simulation time');
+pressPlayer.combat.reload.t=0;
+pressTicks(5);
+assert.equal(pressPlayer.input.fire,false,'next shot waits for the foreleg to reach the key');
+pressTicks(1);
+assert.equal(pressPlayer.input.fire,true,'physical contact enables the next shot');
+console.log('fly fire button: shot receipts, visible hold, reload release, and repeat contact PASS');

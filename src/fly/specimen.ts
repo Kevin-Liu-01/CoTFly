@@ -13,6 +13,7 @@ export interface SpecimenSignals {
   throttle: number;
   steer: number;
   fire: boolean;
+  shotFlash?: number;
   sugar: boolean;
   bearing: number;
   gaitLeft: number;
@@ -411,9 +412,9 @@ export function createSpecimen(
             : 0x436780;
     const button = new THREE.Mesh(
       new THREE.BoxGeometry(
-        key === "aim" ? 0.48 : 0.23,
+        key === "aim" ? 0.48 : key === "fire" ? 0.34 : 0.23,
         0.07,
-        key === "aim" ? 0.33 : 0.2,
+        key === "aim" ? 0.33 : key === "fire" ? 0.3 : 0.2,
       ),
       mat(color, 0.45, 0.25),
     );
@@ -739,12 +740,16 @@ export function createSpecimen(
         const arm = l.side < 0 ? signals.arms.left : signals.arms.right;
         if (arm.key !== "rest") {
           const p = CONTROL_POSITIONS[arm.key];
-          reach.set(p[0], p[1] - 0.72 + (arm.contact ? -0.04 : 0.12), p[2]);
+          const shotDip = arm.key === "fire" ? (signals.shotFlash ?? 0) * 0.025 : 0;
+          // Match the actual button top, even while the fly bobs and steers.
+          reach.set(p[0], p[1] + (arm.contact ? -0.02 : 0.24) - shotDip, p[2]);
+          consoleGroup.localToWorld(reach);
+          fly.worldToLocal(reach);
           l.tip.lerp(reach, Math.min(1, 0.5 + arm.travel * 0.5));
           l.toe.copy(l.tip);
           l.toe.z -= 0.07;
           l.toe.y += 0.04;
-          l.knee.set(l.side * 0.48, -0.05, 0.65);
+          l.knee.set(l.side * 0.48, arm.contact ? -0.05 : 0.1, 0.65);
         }
       }
       if (l.index === 1) {
@@ -776,9 +781,10 @@ export function createSpecimen(
       button.position.y =
         CONTROL_POSITIONS[key as keyof typeof CONTROL_POSITIONS][1] -
         0.02 -
-        (pressed ? 0.035 : 0);
+        (pressed ? 0.035 : 0) -
+        (key === "fire" && pressed ? (signals.shotFlash ?? 0) * 0.025 : 0);
       button.material.emissive.copy(button.material.color);
-      button.material.emissiveIntensity = pressed ? 0.8 : 0;
+      button.material.emissiveIntensity = pressed ? 0.8 + (key === "fire" ? (signals.shotFlash ?? 0) * 2.4 : 0) : 0;
     }
     stick.rotation.z = (signals.look ?? 0) * 0.4;
     camera.position.lerp(cameraTarget, 1 - Math.exp(-dt * 12));
