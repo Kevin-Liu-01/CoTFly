@@ -15,7 +15,7 @@ npm ci
 npm run dev
 ```
 
-Open the printed local URL. Both `/` and `/fly` open CoTFly. The embedded game uses `/index.html?fly-agent=1&nosplash=1` on the same origin.
+Open the printed local URL. Both `/` and `/fly` open CoTFly. The embedded game uses `/game.html?fly-agent=1&nosplash=1` on the same origin.
 
 ```sh
 npm run test:fly
@@ -24,7 +24,7 @@ npm run build
 npm run preview
 ```
 
-Vercel automatically runs the fly tests, type checks and production build on Git pushes, then serves `dist`. `vercel.json` routes the root to `fly.html`; no environment variables are required for the autonomous solo experience. The inherited multiplayer services are optional and require their own configuration.
+Vercel automatically runs the fly tests, type checks and production build on Git pushes, then serves `dist`. The final build publishes the console as `index.html` and the embedded game as `game.html`; no environment variables are required for the autonomous solo experience. The inherited multiplayer services are optional and require their own configuration.
 
 ## What the brain simulates
 

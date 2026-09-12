@@ -214,7 +214,7 @@
     },
     {
       "source": "/studio",
-      "destination": "/index.html"
+      "destination": "/game.html"
     }
   ],
   "framework": "vite",

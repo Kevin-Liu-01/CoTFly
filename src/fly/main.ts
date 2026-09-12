@@ -104,7 +104,7 @@ function launch() {
   $("specimen-status").textContent = "PREPARING";
   status("PREPARING BATTLE");
   buttons(true);
-  game.src = "/index.html?fly-agent=1&nosplash=1";
+  game.src = "/game.html?fly-agent=1&nosplash=1";
   errorTimer = window.setTimeout(() => {
     if (!hasTelemetry) {
       $("loading-text").textContent =

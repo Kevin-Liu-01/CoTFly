@@ -4,7 +4,7 @@ A separate `/fly` page pairs an original procedural fruit fly and miniature armo
 
 ## Run and publish
 
-Install with `npm ci`, run `npx vite --host 127.0.0.1 --port 5193`, and open `/fly`. `npm run build` includes `fly.html`. The standalone CoTFly Vercel configuration rewrites `/` to `/fly.html` on every deployment; the iframe explicitly uses `/index.html`. The production domain is `fly.kevinliu.studio`.
+Install with `npm ci`, run `npx vite --host 127.0.0.1 --port 5193`, and open `/fly`. `npm run build` includes `fly.html`. The standalone CoTFly Vercel configuration rewrites `/` to `/fly.html` on every deployment; the iframe explicitly uses `/game.html`. The production domain is `fly.kevinliu.studio`.
 
 ## Cockpit and game controls
 

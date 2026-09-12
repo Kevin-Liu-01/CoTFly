@@ -88,6 +88,9 @@ const rewriteRoutes = (documentRoot: string): Connect.NextHandleFunction => (req
   }
   if (path === '/fly' || path === '/fly/' || path === '/') {
     req.url = '/fly.html' + query;
+  } else if (path === '/game.html' && !isExistingProjectDocument(path, documentRoot)) {
+    // Development keeps the inherited game source at index.html.
+    req.url = '/index.html' + query;
   } else if (path === '/404.html') {
     forceNotFoundStatus(res);
     req.url = '/404.html' + query;

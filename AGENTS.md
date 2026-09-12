@@ -1,6 +1,6 @@
 # CoTFly
 
-Standalone neural fly pilot for Claude of Tanks. The console entry is `fly.html`; `src/fly/` owns the pilot, connectome, cockpit and UI. `src/main.ts` supplies the embedded game through a same-origin iframe. The root and `/fly` open the console; `/index.html` remains the game entry.
+Standalone neural fly pilot for Claude of Tanks. The console entry is `fly.html`; `src/fly/` owns the pilot, connectome, cockpit and UI. `src/main.ts` supplies the embedded game through a same-origin iframe. The root and `/fly` open the console; `/game.html` remains the game entry.
 
 - Use Node.js 24. Run `npm run test:fly`, `npm run typecheck`, and `npm run build` for pilot integration changes.
 - Keep simulation at 60 Hz and the connectome's deterministic 1 ms substeps. Preserve canonical game actions, spotting boundaries and iframe origin checks.
