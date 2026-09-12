@@ -1,0 +1,1413 @@
+{
+  "tanks": [
+    {
+      "id": "m1a1",
+      "name": "M1A1 Abrams",
+      "detail": "USA · 120 mm",
+      "image": "/icons/m1a1_angle.webp",
+      "icon": "/icons/m1a1_side_silhouette.png"
+    },
+    {
+      "id": "m1a1ha",
+      "name": "M1A1 Abrams HA",
+      "detail": "USA · 120 mm",
+      "image": "/icons/m1a1ha_angle.webp",
+      "icon": "/icons/m1a1ha_side_silhouette.png"
+    },
+    {
+      "id": "m1a2",
+      "name": "M1A2 Abrams",
+      "detail": "USA · 120 mm",
+      "image": "/icons/m1a2_angle.webp",
+      "icon": "/icons/m1a2_side_silhouette.png"
+    },
+    {
+      "id": "m1a2_tusk",
+      "name": "M1A2 Abrams TUSK",
+      "detail": "USA · 120 mm",
+      "image": "/icons/m1a2_tusk_angle.webp",
+      "icon": "/icons/m1a2_tusk_side_silhouette.png"
+    },
+    {
+      "id": "m1a2_sepv2",
+      "name": "M1A2 Abrams SEPv2",
+      "detail": "USA · 120 mm",
+      "image": "/icons/m1a2_sepv2_angle.webp",
+      "icon": "/icons/m1a2_sepv2_side_silhouette.png"
+    },
+    {
+      "id": "m1a2_sepv3",
+      "name": "M1A2 Abrams SEPv3",
+      "detail": "USA · 120 mm",
+      "image": "/icons/m1a2_sepv3_angle.webp",
+      "icon": "/icons/m1a2_sepv3_side_silhouette.png"
+    },
+    {
+      "id": "m1a3",
+      "name": "M1A3 Abrams",
+      "detail": "USA · 130 mm · Missiles",
+      "image": "/icons/m1a3_angle.webp",
+      "icon": "/icons/m1a3_side_silhouette.png"
+    },
+    {
+      "id": "abramsx",
+      "name": "AbramsX",
+      "detail": "USA · 120 mm",
+      "image": "/icons/abramsx_angle.webp",
+      "icon": "/icons/abramsx_side_silhouette.png"
+    },
+    {
+      "id": "t62mv1",
+      "name": "T-62 obr. 1975",
+      "detail": "USSR/Russia · 105 mm",
+      "image": "/icons/t62mv1_angle.webp",
+      "icon": "/icons/t62mv1_side_silhouette.png"
+    },
+    {
+      "id": "t64bv1",
+      "name": "T-64BV1",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t64bv1_angle.webp",
+      "icon": "/icons/t64bv1_side_silhouette.png"
+    },
+    {
+      "id": "t72b3m",
+      "name": "T-72B3M obr. 2022",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t72b3m_angle.webp",
+      "icon": "/icons/t72b3m_side_silhouette.png"
+    },
+    {
+      "id": "t72bu",
+      "name": "T-72BU",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t72bu_angle.webp",
+      "icon": "/icons/t72bu_side_silhouette.png"
+    },
+    {
+      "id": "pt91m",
+      "name": "PT-91M Pendekar",
+      "detail": "Poland · 125 mm",
+      "image": "/icons/pt91m_angle.webp",
+      "icon": "/icons/pt91m_side_silhouette.png"
+    },
+    {
+      "id": "t80",
+      "name": "T-80",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t80_angle.webp",
+      "icon": "/icons/t80_side_silhouette.png"
+    },
+    {
+      "id": "t80b",
+      "name": "T-80B",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t80b_angle.webp",
+      "icon": "/icons/t80b_side_silhouette.png"
+    },
+    {
+      "id": "t80bv",
+      "name": "T-80BV",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t80bv_angle.webp",
+      "icon": "/icons/t80bv_side_silhouette.png"
+    },
+    {
+      "id": "t80u",
+      "name": "T-80U",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t80u_angle.webp",
+      "icon": "/icons/t80u_side_silhouette.png"
+    },
+    {
+      "id": "t84",
+      "name": "T-84 Oplot",
+      "detail": "Ukraine · 125 mm",
+      "image": "/icons/t84_angle.webp",
+      "icon": "/icons/t84_side_silhouette.png"
+    },
+    {
+      "id": "t90",
+      "name": "T-90",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t90_angle.webp",
+      "icon": "/icons/t90_side_silhouette.png"
+    },
+    {
+      "id": "t90a",
+      "name": "T-90A",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t90a_angle.webp",
+      "icon": "/icons/t90a_side_silhouette.png"
+    },
+    {
+      "id": "t90a_vladimir",
+      "name": "T-90A Vladimir",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t90a_vladimir_angle.webp",
+      "icon": "/icons/t90a_vladimir_side_silhouette.png"
+    },
+    {
+      "id": "t90a_burlak",
+      "name": "T-90A Burlak",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t90a_burlak_angle.webp",
+      "icon": "/icons/t90a_burlak_side_silhouette.png"
+    },
+    {
+      "id": "t90sm",
+      "name": "T-90SM",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t90sm_angle.webp",
+      "icon": "/icons/t90sm_side_silhouette.png"
+    },
+    {
+      "id": "t90m",
+      "name": "T-90M",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t90m_angle.webp",
+      "icon": "/icons/t90m_side_silhouette.png"
+    },
+    {
+      "id": "t90ms",
+      "name": "T-90MS Tagil",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t90ms_angle.webp",
+      "icon": "/icons/t90ms_side_silhouette.png"
+    },
+    {
+      "id": "t90m_proryv",
+      "name": "T-90M Proryv",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t90m_proryv_angle.webp",
+      "icon": "/icons/t90m_proryv_side_silhouette.png"
+    },
+    {
+      "id": "strv81",
+      "name": "Stridsvagn 81",
+      "detail": "Sweden · 84 mm",
+      "image": "/icons/strv81_angle.webp",
+      "icon": "/icons/strv81_side_silhouette.png"
+    },
+    {
+      "id": "udes03",
+      "name": "UDES 03",
+      "detail": "Sweden · 105 mm",
+      "image": "/icons/udes03_angle.webp",
+      "icon": "/icons/udes03_side_silhouette.png"
+    },
+    {
+      "id": "strv103a",
+      "name": "Stridsvagn 103A",
+      "detail": "Sweden · 105 mm",
+      "image": "/icons/strv103a_angle.webp",
+      "icon": "/icons/strv103a_side_silhouette.png"
+    },
+    {
+      "id": "strv103",
+      "name": "Stridsvagn 103B",
+      "detail": "Sweden · 105 mm",
+      "image": "/icons/strv103_angle.webp",
+      "icon": "/icons/strv103_side_silhouette.png"
+    },
+    {
+      "id": "cv90",
+      "name": "CV90",
+      "detail": "Sweden · 40 mm",
+      "image": "/icons/cv90_angle.webp",
+      "icon": "/icons/cv90_side_silhouette.png"
+    },
+    {
+      "id": "strv122",
+      "name": "Stridsvagn 122",
+      "detail": "Sweden · 120 mm",
+      "image": "/icons/strv122_angle.webp",
+      "icon": "/icons/strv122_side_silhouette.png"
+    },
+    {
+      "id": "cv90_mkiv",
+      "name": "CV90 Mk IV",
+      "detail": "Sweden · 50 mm · Missiles",
+      "image": "/icons/cv90_mkiv_angle.webp",
+      "icon": "/icons/cv90_mkiv_side_silhouette.png"
+    },
+    {
+      "id": "kv2",
+      "name": "KV-2",
+      "detail": "USSR · 152 mm",
+      "image": "/icons/kv2_angle.webp",
+      "icon": "/icons/kv2_side_silhouette.png"
+    },
+    {
+      "id": "leo1a5",
+      "name": "Leopard 1A5",
+      "detail": "Germany · 105 mm",
+      "image": "/icons/leo1a5_angle.webp",
+      "icon": "/icons/leo1a5_side_silhouette.png"
+    },
+    {
+      "id": "leopard2_proto",
+      "name": "Leopard 2 Prototype",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leopard2_proto_angle.webp",
+      "icon": "/icons/leopard2_proto_side_silhouette.png"
+    },
+    {
+      "id": "leo2a4",
+      "name": "Leopard 2A4",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2a4_angle.webp",
+      "icon": "/icons/leo2a4_side_silhouette.png"
+    },
+    {
+      "id": "leo2a4_otco",
+      "name": "Leopard 2A4 OTCO",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2a4_otco_angle.webp",
+      "icon": "/icons/leo2a4_otco_side_silhouette.png"
+    },
+    {
+      "id": "leo2a4m",
+      "name": "Leopard 2A4M",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2a4m_angle.webp",
+      "icon": "/icons/leo2a4m_side_silhouette.png"
+    },
+    {
+      "id": "leo2a5",
+      "name": "Leopard 2A5",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2a5_angle.webp",
+      "icon": "/icons/leo2a5_side_silhouette.png"
+    },
+    {
+      "id": "leo2a5_a5nl",
+      "name": "Leopard 2A5/A5NL",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2a5_a5nl_angle.webp",
+      "icon": "/icons/leo2a5_a5nl_side_silhouette.png"
+    },
+    {
+      "id": "leo2a6",
+      "name": "Leopard 2A6",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2a6_angle.webp",
+      "icon": "/icons/leo2a6_side_silhouette.png"
+    },
+    {
+      "id": "leo2a6m",
+      "name": "Leopard 2A6M",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2a6m_angle.webp",
+      "icon": "/icons/leo2a6m_side_silhouette.png"
+    },
+    {
+      "id": "leo2_revolution_proto",
+      "name": "Leopard 2 Revolution Proto",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2_revolution_proto_angle.webp",
+      "icon": "/icons/leo2_revolution_proto_side_silhouette.png"
+    },
+    {
+      "id": "leo2_revolution",
+      "name": "Leopard 2 Revolution",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2_revolution_angle.webp",
+      "icon": "/icons/leo2_revolution_side_silhouette.png"
+    },
+    {
+      "id": "leo2a7v",
+      "name": "Leopard 2A7V",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2a7v_angle.webp",
+      "icon": "/icons/leo2a7v_side_silhouette.png"
+    },
+    {
+      "id": "leclerc",
+      "name": "Leclerc S2",
+      "detail": "France · 120 mm",
+      "image": "/icons/leclerc_angle.webp",
+      "icon": "/icons/leclerc_side_silhouette.png"
+    },
+    {
+      "id": "leclerc_xlr",
+      "name": "Leclerc XLR",
+      "detail": "France · 120 mm",
+      "image": "/icons/leclerc_xlr_angle.webp",
+      "icon": "/icons/leclerc_xlr_side_silhouette.png"
+    },
+    {
+      "id": "amx56",
+      "name": "AMX 56",
+      "detail": "France · 120 mm",
+      "image": "/icons/amx56_angle.webp",
+      "icon": "/icons/amx56_side_silhouette.png"
+    },
+    {
+      "id": "type59",
+      "name": "Type 59",
+      "detail": "China · 100 mm",
+      "image": "/icons/type59_angle.webp",
+      "icon": "/icons/type59_side_silhouette.png"
+    },
+    {
+      "id": "ztz85_iii",
+      "name": "ZTZ-85-III",
+      "detail": "China · 100 mm",
+      "image": "/icons/ztz85_iii_angle.webp",
+      "icon": "/icons/ztz85_iii_side_silhouette.png"
+    },
+    {
+      "id": "type99a",
+      "name": "ZTZ-99A (Type 99A)",
+      "detail": "China · 125 mm",
+      "image": "/icons/type99a_angle.webp",
+      "icon": "/icons/type99a_side_silhouette.png"
+    },
+    {
+      "id": "ztz99a2_prototype",
+      "name": "ZTZ-99A2 Prototype",
+      "detail": "China · 125 mm",
+      "image": "/icons/ztz99a2_prototype_angle.webp",
+      "icon": "/icons/ztz99a2_prototype_side_silhouette.png"
+    },
+    {
+      "id": "ztz99a2",
+      "name": "ZTZ-99A2",
+      "detail": "China · 125 mm",
+      "image": "/icons/ztz99a2_angle.webp",
+      "icon": "/icons/ztz99a2_side_silhouette.png"
+    },
+    {
+      "id": "vt4a1",
+      "name": "VT-4A1",
+      "detail": "China · 125 mm",
+      "image": "/icons/vt4a1_angle.webp",
+      "icon": "/icons/vt4a1_side_silhouette.png"
+    },
+    {
+      "id": "mbt70",
+      "name": "MBT-70",
+      "detail": "Germany · 152 mm · Missiles",
+      "image": "/icons/mbt70_angle.webp",
+      "icon": "/icons/mbt70_side_silhouette.png"
+    },
+    {
+      "id": "t14",
+      "name": "T-14 Armata",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t14_angle.webp",
+      "icon": "/icons/t14_side_silhouette.png"
+    },
+    {
+      "id": "kf51",
+      "name": "KF51 Panther",
+      "detail": "Germany · 130 mm",
+      "image": "/icons/kf51_angle.webp",
+      "icon": "/icons/kf51_side_silhouette.png"
+    },
+    {
+      "id": "kf51b",
+      "name": "KF51B Panther",
+      "detail": "Germany · 130 mm",
+      "image": "/icons/kf51b_angle.webp",
+      "icon": "/icons/kf51b_side_silhouette.png"
+    },
+    {
+      "id": "chieftain5",
+      "name": "Chieftain Mk 5",
+      "detail": "UK · 120 mm",
+      "image": "/icons/chieftain5_angle.webp",
+      "icon": "/icons/chieftain5_side_silhouette.png"
+    },
+    {
+      "id": "chieftain_mk10",
+      "name": "Chieftain Mk 10",
+      "detail": "UK · 120 mm",
+      "image": "/icons/chieftain_mk10_angle.webp",
+      "icon": "/icons/chieftain_mk10_side_silhouette.png"
+    },
+    {
+      "id": "challenger1",
+      "name": "Challenger 1 Mk 3",
+      "detail": "UK · 120 mm",
+      "image": "/icons/challenger1_angle.webp",
+      "icon": "/icons/challenger1_side_silhouette.png"
+    },
+    {
+      "id": "fv4034",
+      "name": "FV4034",
+      "detail": "UK · 120 mm",
+      "image": "/icons/fv4034_angle.webp",
+      "icon": "/icons/fv4034_side_silhouette.png"
+    },
+    {
+      "id": "challenger2",
+      "name": "Challenger 2",
+      "detail": "UK · 120 mm",
+      "image": "/icons/challenger2_angle.webp",
+      "icon": "/icons/challenger2_side_silhouette.png"
+    },
+    {
+      "id": "challenger2e",
+      "name": "Challenger 2E",
+      "detail": "UK · 120 mm",
+      "image": "/icons/challenger2e_angle.webp",
+      "icon": "/icons/challenger2e_side_silhouette.png"
+    },
+    {
+      "id": "ua_challenger2",
+      "name": "Challenger 2 (Ukraine)",
+      "detail": "Ukraine · 120 mm",
+      "image": "/icons/ua_challenger2_angle.webp",
+      "icon": "/icons/ua_challenger2_side_silhouette.png"
+    },
+    {
+      "id": "challenger_3",
+      "name": "Challenger 3",
+      "detail": "UK · 120 mm",
+      "image": "/icons/challenger_3_angle.webp",
+      "icon": "/icons/challenger_3_side_silhouette.png"
+    },
+    {
+      "id": "challenger_3x",
+      "name": "Challenger 3 X",
+      "detail": "UK · 120 mm",
+      "image": "/icons/challenger_3x_angle.webp",
+      "icon": "/icons/challenger_3x_side_silhouette.png"
+    },
+    {
+      "id": "k2",
+      "name": "K2 Black Panther",
+      "detail": "South Korea · 120 mm",
+      "image": "/icons/k2_angle.webp",
+      "icon": "/icons/k2_side_silhouette.png"
+    },
+    {
+      "id": "k1a1",
+      "name": "K1A1",
+      "detail": "South Korea · 120 mm",
+      "image": "/icons/k1a1_angle.webp",
+      "icon": "/icons/k1a1_side_silhouette.png"
+    },
+    {
+      "id": "stb1",
+      "name": "STB-1",
+      "detail": "Japan · 105 mm",
+      "image": "/icons/stb1_angle.webp",
+      "icon": "/icons/stb1_side_silhouette.png"
+    },
+    {
+      "id": "type74",
+      "name": "Type 74",
+      "detail": "Japan · 105 mm",
+      "image": "/icons/type74_angle.webp",
+      "icon": "/icons/type74_side_silhouette.png"
+    },
+    {
+      "id": "type90",
+      "name": "Type 90 (Kyū-maru)",
+      "detail": "Japan · 120 mm",
+      "image": "/icons/type90_angle.webp",
+      "icon": "/icons/type90_side_silhouette.png"
+    },
+    {
+      "id": "type90a",
+      "name": "Type 90A",
+      "detail": "Japan · 120 mm",
+      "image": "/icons/type90a_angle.webp",
+      "icon": "/icons/type90a_side_silhouette.png"
+    },
+    {
+      "id": "type10",
+      "name": "Type 10",
+      "detail": "Japan · 120 mm",
+      "image": "/icons/type10_angle.webp",
+      "icon": "/icons/type10_side_silhouette.png"
+    },
+    {
+      "id": "type10b",
+      "name": "Type 10B",
+      "detail": "Japan · 120 mm",
+      "image": "/icons/type10b_angle.webp",
+      "icon": "/icons/type10b_side_silhouette.png"
+    },
+    {
+      "id": "m2a2_bradley",
+      "name": "M2A2 Bradley",
+      "detail": "USA · 25 mm · Missiles",
+      "image": "/icons/m2a2_bradley_angle.webp",
+      "icon": "/icons/m2a2_bradley_side_silhouette.png"
+    },
+    {
+      "id": "bmp2",
+      "name": "BMP-2",
+      "detail": "USSR · 30 mm · Missiles",
+      "image": "/icons/bmp2_angle.webp",
+      "icon": "/icons/bmp2_side_silhouette.png"
+    },
+    {
+      "id": "spz_puma",
+      "name": "Schützenpanzer Puma",
+      "detail": "Germany · 30 mm · Missiles",
+      "image": "/icons/spz_puma_angle.webp",
+      "icon": "/icons/spz_puma_side_silhouette.png"
+    },
+    {
+      "id": "spz_puma_s1",
+      "name": "Schützenpanzer Puma S1",
+      "detail": "Germany · 30 mm · Missiles",
+      "image": "/icons/spz_puma_s1_angle.webp",
+      "icon": "/icons/spz_puma_s1_side_silhouette.png"
+    },
+    {
+      "id": "type89_light_tiger",
+      "name": "Type 89 Light Tiger",
+      "detail": "Japan · 35 mm · Missiles",
+      "image": "/icons/type89_light_tiger_angle.webp",
+      "icon": "/icons/type89_light_tiger_side_silhouette.png"
+    },
+    {
+      "id": "type89",
+      "name": "Type 89 IFV",
+      "detail": "Japan · 35 mm · Missiles",
+      "image": "/icons/type89_angle.webp",
+      "icon": "/icons/type89_side_silhouette.png"
+    },
+    {
+      "id": "carro45t",
+      "name": "Carro 45t",
+      "detail": "Italy · 105 mm",
+      "image": "/icons/carro45t_angle.webp",
+      "icon": "/icons/carro45t_side_silhouette.png"
+    },
+    {
+      "id": "ariete",
+      "name": "C1 Ariete Preserie",
+      "detail": "Italy · 120 mm",
+      "image": "/icons/ariete_angle.webp",
+      "icon": "/icons/ariete_side_silhouette.png"
+    },
+    {
+      "id": "ariete_c1",
+      "name": "C1 Ariete",
+      "detail": "Italy · 120 mm",
+      "image": "/icons/ariete_c1_angle.webp",
+      "icon": "/icons/ariete_c1_side_silhouette.png"
+    },
+    {
+      "id": "ariete_c2",
+      "name": "C2 Ariete",
+      "detail": "Italy · 120 mm",
+      "image": "/icons/ariete_c2_angle.webp",
+      "icon": "/icons/ariete_c2_side_silhouette.png"
+    },
+    {
+      "id": "fv510",
+      "name": "FV510 Warrior",
+      "detail": "UK · 30 mm",
+      "image": "/icons/fv510_angle.webp",
+      "icon": "/icons/fv510_side_silhouette.png"
+    },
+    {
+      "id": "m60a1",
+      "name": "M60A1 Patton",
+      "detail": "USA · 105 mm",
+      "image": "/icons/m60a1_angle.webp",
+      "icon": "/icons/m60a1_side_silhouette.png"
+    },
+    {
+      "id": "merkava1b",
+      "name": "Merkava Mk 1B",
+      "detail": "Israel · 120 mm",
+      "image": "/icons/merkava1b_angle.webp",
+      "icon": "/icons/merkava1b_side_silhouette.png"
+    },
+    {
+      "id": "merkava2b",
+      "name": "Merkava Mk 2B",
+      "detail": "Israel · 120 mm",
+      "image": "/icons/merkava2b_angle.webp",
+      "icon": "/icons/merkava2b_side_silhouette.png"
+    },
+    {
+      "id": "merkava2d",
+      "name": "Merkava Mk 2D",
+      "detail": "Israel · 120 mm",
+      "image": "/icons/merkava2d_angle.webp",
+      "icon": "/icons/merkava2d_side_silhouette.png"
+    },
+    {
+      "id": "merkava3c",
+      "name": "Merkava Mk 3C",
+      "detail": "Israel · 120 mm",
+      "image": "/icons/merkava3c_angle.webp",
+      "icon": "/icons/merkava3c_side_silhouette.png"
+    },
+    {
+      "id": "merkava3d",
+      "name": "Merkava Mk 3D",
+      "detail": "Israel · 120 mm",
+      "image": "/icons/merkava3d_angle.webp",
+      "icon": "/icons/merkava3d_side_silhouette.png"
+    },
+    {
+      "id": "merkava4b",
+      "name": "Merkava Mk 4B",
+      "detail": "Israel · 120 mm",
+      "image": "/icons/merkava4b_angle.webp",
+      "icon": "/icons/merkava4b_side_silhouette.png"
+    },
+    {
+      "id": "fv510_milan",
+      "name": "FV510 Warrior MILAN",
+      "detail": "UK · 30 mm · Missiles",
+      "image": "/icons/fv510_milan_angle.webp",
+      "icon": "/icons/fv510_milan_side_silhouette.png"
+    },
+    {
+      "id": "amx30",
+      "name": "AMX-30B",
+      "detail": "France · 105 mm",
+      "image": "/icons/amx30_angle.webp",
+      "icon": "/icons/amx30_side_silhouette.png"
+    },
+    {
+      "id": "amx30b2",
+      "name": "AMX-30B2",
+      "detail": "France · 105 mm",
+      "image": "/icons/amx30b2_angle.webp",
+      "icon": "/icons/amx30b2_side_silhouette.png"
+    },
+    {
+      "id": "m48",
+      "name": "M48A5 Patton",
+      "detail": "USA · 105 mm",
+      "image": "/icons/m48_angle.webp",
+      "icon": "/icons/m48_side_silhouette.png"
+    },
+    {
+      "id": "m60a2",
+      "name": "M60A2 Starship",
+      "detail": "USA · 152 mm · Missiles",
+      "image": "/icons/m60a2_angle.webp",
+      "icon": "/icons/m60a2_side_silhouette.png"
+    },
+    {
+      "id": "vickers_mk1",
+      "name": "Vickers MBT Mk 1",
+      "detail": "UK · 105 mm",
+      "image": "/icons/vickers_mk1_angle.webp",
+      "icon": "/icons/vickers_mk1_side_silhouette.png"
+    },
+    {
+      "id": "centurion3",
+      "name": "Centurion Mk 3",
+      "detail": "UK · 84 mm",
+      "image": "/icons/centurion3_angle.webp",
+      "icon": "/icons/centurion3_side_silhouette.png"
+    },
+    {
+      "id": "centurion5",
+      "name": "Centurion Mk 5/2",
+      "detail": "UK · 105 mm",
+      "image": "/icons/centurion5_angle.webp",
+      "icon": "/icons/centurion5_side_silhouette.png"
+    },
+    {
+      "id": "m46_patton",
+      "name": "M46 Patton",
+      "detail": "USA · 90 mm",
+      "image": "/icons/m46_patton_angle.webp",
+      "icon": "/icons/m46_patton_side_silhouette.png"
+    },
+    {
+      "id": "m47_patton",
+      "name": "M47 Patton",
+      "detail": "USA · 90 mm",
+      "image": "/icons/m47_patton_angle.webp",
+      "icon": "/icons/m47_patton_side_silhouette.png"
+    },
+    {
+      "id": "m60a3",
+      "name": "M60A3",
+      "detail": "USA · 105 mm",
+      "image": "/icons/m60a3_angle.webp",
+      "icon": "/icons/m60a3_side_silhouette.png"
+    },
+    {
+      "id": "amx40",
+      "name": "AMX-40",
+      "detail": "France · 120 mm",
+      "image": "/icons/amx40_angle.webp",
+      "icon": "/icons/amx40_side_silhouette.png"
+    },
+    {
+      "id": "ua_t64bv",
+      "name": "T-64BV Donbas",
+      "detail": "Ukraine · 125 mm",
+      "image": "/icons/ua_t64bv_angle.webp",
+      "icon": "/icons/ua_t64bv_side_silhouette.png"
+    },
+    {
+      "id": "ua_t80bv",
+      "name": "T-80BV (Ukraine)",
+      "detail": "Ukraine · 125 mm",
+      "image": "/icons/ua_t80bv_angle.webp",
+      "icon": "/icons/ua_t80bv_side_silhouette.png"
+    },
+    {
+      "id": "ua_t80u_kursk",
+      "name": "T-80U Kursk",
+      "detail": "Ukraine · 125 mm",
+      "image": "/icons/ua_t80u_kursk_angle.webp",
+      "icon": "/icons/ua_t80u_kursk_side_silhouette.png"
+    },
+    {
+      "id": "ua_t84_oplot_m",
+      "name": "T-84BM Oplot-M",
+      "detail": "Ukraine · 125 mm",
+      "image": "/icons/ua_t84_oplot_m_angle.webp",
+      "icon": "/icons/ua_t84_oplot_m_side_silhouette.png"
+    },
+    {
+      "id": "ua_m1a1",
+      "name": "M1A1 Abrams UA",
+      "detail": "Ukraine · 120 mm",
+      "image": "/icons/ua_m1a1_angle.webp",
+      "icon": "/icons/ua_m1a1_side_silhouette.png"
+    },
+    {
+      "id": "leo2a6_ua",
+      "name": "Leopard 2A6 UA",
+      "detail": "Ukraine · 120 mm",
+      "image": "/icons/leo2a6_ua_angle.webp",
+      "icon": "/icons/leo2a6_ua_side_silhouette.png"
+    },
+    {
+      "id": "t72m1_jaguar",
+      "name": "T-72M1 Jaguar",
+      "detail": "Poland · 125 mm",
+      "image": "/icons/t72m1_jaguar_angle.webp",
+      "icon": "/icons/t72m1_jaguar_side_silhouette.png"
+    },
+    {
+      "id": "pt91_twardy",
+      "name": "PT-91A Twardy",
+      "detail": "Poland · 125 mm",
+      "image": "/icons/pt91_twardy_angle.webp",
+      "icon": "/icons/pt91_twardy_side_silhouette.png"
+    },
+    {
+      "id": "pl01",
+      "name": "PL-01",
+      "detail": "Poland · 120 mm",
+      "image": "/icons/pl01_angle.webp",
+      "icon": "/icons/pl01_side_silhouette.png"
+    },
+    {
+      "id": "pl01_105",
+      "name": "PL-01 (105)",
+      "detail": "Poland · 105 mm",
+      "image": "/icons/pl01_105_angle.webp",
+      "icon": "/icons/pl01_105_side_silhouette.png"
+    },
+    {
+      "id": "k2b",
+      "name": "K2B",
+      "detail": "South Korea · 120 mm",
+      "image": "/icons/k2b_angle.webp",
+      "icon": "/icons/k2b_side_silhouette.png"
+    },
+    {
+      "id": "bmp3_rok",
+      "name": "BMP-3 (ROK)",
+      "detail": "South Korea · 30 mm · Missiles",
+      "image": "/icons/bmp3_rok_angle.webp",
+      "icon": "/icons/bmp3_rok_side_silhouette.png"
+    },
+    {
+      "id": "ua_m2a3_bradley",
+      "name": "M2A3 Bradley (Ukraine)",
+      "detail": "Ukraine · 25 mm · Missiles",
+      "image": "/icons/ua_m2a3_bradley_angle.webp",
+      "icon": "/icons/ua_m2a3_bradley_side_silhouette.png"
+    },
+    {
+      "id": "bmpt_terminator2",
+      "name": "BMPT Terminator 2",
+      "detail": "Russia · 30 mm · Missiles",
+      "image": "/icons/bmpt_terminator2_angle.webp",
+      "icon": "/icons/bmpt_terminator2_side_silhouette.png"
+    },
+    {
+      "id": "bwp1",
+      "name": "BWP-1 (Bojowy Wóz Piechoty 1)",
+      "detail": "Poland · 30 mm · Missiles",
+      "image": "/icons/bwp1_angle.webp",
+      "icon": "/icons/bwp1_side_silhouette.png"
+    },
+    {
+      "id": "marder1a3",
+      "name": "Schützenpanzer Marder 1A3",
+      "detail": "Germany · 20 mm · Missiles",
+      "image": "/icons/marder1a3_angle.webp",
+      "icon": "/icons/marder1a3_side_silhouette.png"
+    },
+    {
+      "id": "m3a3_bradley",
+      "name": "M3A3 Bradley CFV",
+      "detail": "USA · 25 mm · Missiles",
+      "image": "/icons/m3a3_bradley_angle.webp",
+      "icon": "/icons/m3a3_bradley_side_silhouette.png"
+    },
+    {
+      "id": "bmp3",
+      "name": "BMP-3",
+      "detail": "Russia · 30 mm · Missiles",
+      "image": "/icons/bmp3_angle.webp",
+      "icon": "/icons/bmp3_side_silhouette.png"
+    },
+    {
+      "id": "upior",
+      "name": "Upiór IFV",
+      "detail": "Poland · 30 mm · Missiles",
+      "image": "/icons/upior_angle.webp",
+      "icon": "/icons/upior_side_silhouette.png"
+    },
+    {
+      "id": "bmpt_t90",
+      "name": "BMPT T-90",
+      "detail": "Russia · 30 mm · Missiles",
+      "image": "/icons/bmpt_t90_angle.webp",
+      "icon": "/icons/bmpt_t90_side_silhouette.png"
+    },
+    {
+      "id": "m551_sheridan",
+      "name": "M551 Sheridan",
+      "detail": "USA · 152 mm · Missiles",
+      "image": "/icons/m551_sheridan_angle.webp",
+      "icon": "/icons/m551_sheridan_side_silhouette.png"
+    },
+    {
+      "id": "m551a1_tts",
+      "name": "M551A1 TTS",
+      "detail": "USA · 152 mm · Missiles",
+      "image": "/icons/m551a1_tts_angle.webp",
+      "icon": "/icons/m551a1_tts_side_silhouette.png"
+    },
+    {
+      "id": "leo2a7v_x",
+      "name": "Leopard 2A7V X",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2a7v_x_angle.webp",
+      "icon": "/icons/leo2a7v_x_side_silhouette.png"
+    },
+    {
+      "id": "leo2a6m_x",
+      "name": "Leopard 2A6M X",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2a6m_x_angle.webp",
+      "icon": "/icons/leo2a6m_x_side_silhouette.png"
+    },
+    {
+      "id": "leo2a4m_x",
+      "name": "Leopard 2A4M X",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2a4m_x_angle.webp",
+      "icon": "/icons/leo2a4m_x_side_silhouette.png"
+    },
+    {
+      "id": "leo2a5_x",
+      "name": "Leopard 2A5 X",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2a5_x_angle.webp",
+      "icon": "/icons/leo2a5_x_side_silhouette.png"
+    },
+    {
+      "id": "merkava4_x",
+      "name": "Merkava Mk4 X",
+      "detail": "Israel · 120 mm",
+      "image": "/icons/merkava4_x_angle.webp",
+      "icon": "/icons/merkava4_x_side_silhouette.png"
+    },
+    {
+      "id": "merkava3d_x",
+      "name": "Merkava Mk3D X",
+      "detail": "Israel · 120 mm",
+      "image": "/icons/merkava3d_x_angle.webp",
+      "icon": "/icons/merkava3d_x_side_silhouette.png"
+    },
+    {
+      "id": "k2_x",
+      "name": "K2 Black Panther X",
+      "detail": "South Korea · 120 mm",
+      "image": "/icons/k2_x_angle.webp",
+      "icon": "/icons/k2_x_side_silhouette.png"
+    },
+    {
+      "id": "kf51_x",
+      "name": "KF51 Panther X",
+      "detail": "Germany · 130 mm",
+      "image": "/icons/kf51_x_angle.webp",
+      "icon": "/icons/kf51_x_side_silhouette.png"
+    },
+    {
+      "id": "t90a_x",
+      "name": "T-90A X",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t90a_x_angle.webp",
+      "icon": "/icons/t90a_x_side_silhouette.png"
+    },
+    {
+      "id": "t90a_vladimir_x",
+      "name": "T-90A Vladimir X",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t90a_vladimir_x_angle.webp",
+      "icon": "/icons/t90a_vladimir_x_side_silhouette.png"
+    },
+    {
+      "id": "t90m_x",
+      "name": "T-90M X",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t90m_x_angle.webp",
+      "icon": "/icons/t90m_x_side_silhouette.png"
+    },
+    {
+      "id": "t90sm_x",
+      "name": "T-90SM X",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t90sm_x_angle.webp",
+      "icon": "/icons/t90sm_x_side_silhouette.png"
+    },
+    {
+      "id": "t14_x",
+      "name": "T-14 Armata X",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t14_x_angle.webp",
+      "icon": "/icons/t14_x_side_silhouette.png"
+    },
+    {
+      "id": "leo2a6_x",
+      "name": "Leopard 2A6 X",
+      "detail": "Germany · 120 mm",
+      "image": "/icons/leo2a6_x_angle.webp",
+      "icon": "/icons/leo2a6_x_side_silhouette.png"
+    },
+    {
+      "id": "k1a1_x",
+      "name": "K1A1 X",
+      "detail": "South Korea · 120 mm",
+      "image": "/icons/k1a1_x_angle.webp",
+      "icon": "/icons/k1a1_x_side_silhouette.png"
+    },
+    {
+      "id": "amx30_x",
+      "name": "AMX-30 B X",
+      "detail": "France · 105 mm",
+      "image": "/icons/amx30_x_angle.webp",
+      "icon": "/icons/amx30_x_side_silhouette.png"
+    },
+    {
+      "id": "t62mv1_x",
+      "name": "T-62MV-1 X",
+      "detail": "USSR/Russia · 105 mm",
+      "image": "/icons/t62mv1_x_angle.webp",
+      "icon": "/icons/t62mv1_x_side_silhouette.png"
+    },
+    {
+      "id": "t72b_1987_x",
+      "name": "T-72B obr. 1987 X",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t72b_1987_x_angle.webp",
+      "icon": "/icons/t72b_1987_x_side_silhouette.png"
+    },
+    {
+      "id": "t80u_x",
+      "name": "T-80U X",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t80u_x_angle.webp",
+      "icon": "/icons/t80u_x_side_silhouette.png"
+    },
+    {
+      "id": "leclerc_x",
+      "name": "Char Leclerc X",
+      "detail": "France · 120 mm",
+      "image": "/icons/leclerc_x_angle.webp",
+      "icon": "/icons/leclerc_x_side_silhouette.png"
+    },
+    {
+      "id": "leclerc_classic_x",
+      "name": "Leclerc X",
+      "detail": "France · 120 mm",
+      "image": "/icons/leclerc_classic_x_angle.webp",
+      "icon": "/icons/leclerc_classic_x_side_silhouette.png"
+    },
+    {
+      "id": "chieftain_mk10_x",
+      "name": "Chieftain Mk 10 X",
+      "detail": "UK · 120 mm",
+      "image": "/icons/chieftain_mk10_x_angle.webp",
+      "icon": "/icons/chieftain_mk10_x_side_silhouette.png"
+    },
+    {
+      "id": "t72b3_x",
+      "name": "T-72B3 X",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t72b3_x_angle.webp",
+      "icon": "/icons/t72b3_x_side_silhouette.png"
+    },
+    {
+      "id": "jpz_e100_x",
+      "name": "Jagdpanzer E100 X",
+      "detail": "Germany · 170 mm",
+      "image": "/icons/jpz_e100_x_angle.webp",
+      "icon": "/icons/jpz_e100_x_side_silhouette.png"
+    },
+    {
+      "id": "type10_x",
+      "name": "Type 10 X",
+      "detail": "Japan · 120 mm",
+      "image": "/icons/type10_x_angle.webp",
+      "icon": "/icons/type10_x_side_silhouette.png"
+    },
+    {
+      "id": "type90_x",
+      "name": "Type 90 X",
+      "detail": "Japan · 120 mm",
+      "image": "/icons/type90_x_angle.webp",
+      "icon": "/icons/type90_x_side_silhouette.png"
+    },
+    {
+      "id": "amx40_x",
+      "name": "AMX-40 X",
+      "detail": "France · 120 mm",
+      "image": "/icons/amx40_x_angle.webp",
+      "icon": "/icons/amx40_x_side_silhouette.png"
+    },
+    {
+      "id": "ariete_c1_x",
+      "name": "C1 Ariete X",
+      "detail": "Italy · 120 mm",
+      "image": "/icons/ariete_c1_x_angle.webp",
+      "icon": "/icons/ariete_c1_x_side_silhouette.png"
+    },
+    {
+      "id": "strv122_x",
+      "name": "Stridsvagn 122 X",
+      "detail": "Sweden · 120 mm",
+      "image": "/icons/strv122_x_angle.webp",
+      "icon": "/icons/strv122_x_side_silhouette.png"
+    },
+    {
+      "id": "t72b3m_x",
+      "name": "T-72B3M obr. 2022 X",
+      "detail": "Russia · 125 mm",
+      "image": "/icons/t72b3m_x_angle.webp",
+      "icon": "/icons/t72b3m_x_side_silhouette.png"
+    },
+    {
+      "id": "challenger1_x",
+      "name": "Challenger 1 X",
+      "detail": "UK · 120 mm",
+      "image": "/icons/challenger1_x_angle.webp",
+      "icon": "/icons/challenger1_x_side_silhouette.png"
+    },
+    {
+      "id": "t72bu_x",
+      "name": "T-72BU X",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t72bu_x_angle.webp",
+      "icon": "/icons/t72bu_x_side_silhouette.png"
+    },
+    {
+      "id": "chieftain5_x",
+      "name": "Chieftain Mk 5 X",
+      "detail": "UK · 120 mm",
+      "image": "/icons/chieftain5_x_angle.webp",
+      "icon": "/icons/chieftain5_x_side_silhouette.png"
+    },
+    {
+      "id": "t90_x",
+      "name": "T-90 X",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t90_x_angle.webp",
+      "icon": "/icons/t90_x_side_silhouette.png"
+    },
+    {
+      "id": "t90a_burlak_x",
+      "name": "T-90A Burlak X",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t90a_burlak_x_angle.webp",
+      "icon": "/icons/t90a_burlak_x_side_silhouette.png"
+    },
+    {
+      "id": "t90ms_x",
+      "name": "T-90MS Tagil X",
+      "detail": "USSR/Russia · 125 mm",
+      "image": "/icons/t90ms_x_angle.webp",
+      "icon": "/icons/t90ms_x_side_silhouette.png"
+    },
+    {
+      "id": "m1a1_x",
+      "name": "M1A1 Abrams X",
+      "detail": "USA · 120 mm",
+      "image": "/icons/m1a1_x_angle.webp",
+      "icon": "/icons/m1a1_x_side_silhouette.png"
+    },
+    {
+      "id": "m1a1ha_x",
+      "name": "M1A1 Abrams HA X",
+      "detail": "USA · 120 mm",
+      "image": "/icons/m1a1ha_x_angle.webp",
+      "icon": "/icons/m1a1ha_x_side_silhouette.png"
+    },
+    {
+      "id": "m1a2_x",
+      "name": "M1A2 Abrams X",
+      "detail": "USA · 120 mm",
+      "image": "/icons/m1a2_x_angle.webp",
+      "icon": "/icons/m1a2_x_side_silhouette.png"
+    },
+    {
+      "id": "m1a2_tusk_x",
+      "name": "M1A2 Abrams TUSK X",
+      "detail": "USA · 120 mm",
+      "image": "/icons/m1a2_tusk_x_angle.webp",
+      "icon": "/icons/m1a2_tusk_x_side_silhouette.png"
+    },
+    {
+      "id": "m1a2_sepv2_x",
+      "name": "M1A2 Abrams SEPv2 X",
+      "detail": "USA · 120 mm",
+      "image": "/icons/m1a2_sepv2_x_angle.webp",
+      "icon": "/icons/m1a2_sepv2_x_side_silhouette.png"
+    },
+    {
+      "id": "m1a2_sepv3_x",
+      "name": "M1A2 Abrams SEPv3 X",
+      "detail": "USA · 120 mm",
+      "image": "/icons/m1a2_sepv3_x_angle.webp",
+      "icon": "/icons/m1a2_sepv3_x_side_silhouette.png"
+    },
+    {
+      "id": "ua_m1a1_x",
+      "name": "M1A1 Abrams UA X",
+      "detail": "Ukraine · 120 mm",
+      "image": "/icons/ua_m1a1_x_angle.webp",
+      "icon": "/icons/ua_m1a1_x_side_silhouette.png"
+    }
+  ],
+  "maps": [
+    {
+      "id": "verdant",
+      "name": "Verdant Fields",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/verdant.webp",
+      "icon": "/maps/thumbs/verdant.webp"
+    },
+    {
+      "id": "desert",
+      "name": "Sirocco Wadi",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/desert.webp",
+      "icon": "/maps/thumbs/desert.webp"
+    },
+    {
+      "id": "winter",
+      "name": "Frosthollow",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/winter.webp",
+      "icon": "/maps/thumbs/winter.webp"
+    },
+    {
+      "id": "urban",
+      "name": "Steinburg",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/urban.webp",
+      "icon": "/maps/thumbs/urban.webp"
+    },
+    {
+      "id": "coastal",
+      "name": "Saltmere Bay",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/coastal.webp",
+      "icon": "/maps/thumbs/coastal.webp"
+    },
+    {
+      "id": "autumn",
+      "name": "Amberford",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/autumn.webp",
+      "icon": "/maps/thumbs/autumn.webp"
+    },
+    {
+      "id": "steppe",
+      "name": "Tarkhan Steppe",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/steppe.webp",
+      "icon": "/maps/thumbs/steppe.webp"
+    },
+    {
+      "id": "railyard",
+      "name": "Cinder Junction",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/railyard.webp",
+      "icon": "/maps/thumbs/railyard.webp"
+    },
+    {
+      "id": "frontier",
+      "name": "Frontier Basin",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/frontier.webp",
+      "icon": "/maps/thumbs/frontier.webp"
+    },
+    {
+      "id": "fjord",
+      "name": "Nordhavn Fjord",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/fjord.webp",
+      "icon": "/maps/thumbs/fjord.webp"
+    },
+    {
+      "id": "delta",
+      "name": "Jade River Delta",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/delta.webp",
+      "icon": "/maps/thumbs/delta.webp"
+    },
+    {
+      "id": "badlands",
+      "name": "Redrock Divide",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/badlands.webp",
+      "icon": "/maps/thumbs/badlands.webp"
+    },
+    {
+      "id": "monsoon",
+      "name": "Monsoon Ridge",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/monsoon.webp",
+      "icon": "/maps/thumbs/monsoon.webp"
+    },
+    {
+      "id": "alpine",
+      "name": "Glacier Pass",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/alpine.webp",
+      "icon": "/maps/thumbs/alpine.webp"
+    },
+    {
+      "id": "caldera",
+      "name": "Obsidian Caldera",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/caldera.webp",
+      "icon": "/maps/thumbs/caldera.webp"
+    },
+    {
+      "id": "foundry",
+      "name": "Ironworks",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/foundry.webp",
+      "icon": "/maps/thumbs/foundry.webp"
+    },
+    {
+      "id": "ruinspires",
+      "name": "Ruinspires",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/ruinspires.webp",
+      "icon": "/maps/thumbs/ruinspires.webp"
+    },
+    {
+      "id": "blackglass",
+      "name": "Blackglass District",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/blackglass.webp",
+      "icon": "/maps/thumbs/blackglass.webp"
+    },
+    {
+      "id": "titan_gorge",
+      "name": "Titan Gorge",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/titan_gorge.webp",
+      "icon": "/maps/thumbs/titan_gorge.webp"
+    },
+    {
+      "id": "skybridge",
+      "name": "Skybridge Chasm",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/skybridge.webp",
+      "icon": "/maps/thumbs/skybridge.webp"
+    },
+    {
+      "id": "polders",
+      "name": "Tidegate Polders",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/polders.webp",
+      "icon": "/maps/thumbs/polders.webp"
+    },
+    {
+      "id": "copper_mesa",
+      "name": "Copper Mesa Mine",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/copper_mesa.webp",
+      "icon": "/maps/thumbs/copper_mesa.webp"
+    },
+    {
+      "id": "airfield",
+      "name": "Kestrel Airfield",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/airfield.webp",
+      "icon": "/maps/thumbs/airfield.webp"
+    },
+    {
+      "id": "oasis",
+      "name": "Sunscar Oasis",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/oasis.webp",
+      "icon": "/maps/thumbs/oasis.webp"
+    },
+    {
+      "id": "whiteout",
+      "name": "Whiteout Station",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/whiteout.webp",
+      "icon": "/maps/thumbs/whiteout.webp"
+    },
+    {
+      "id": "orchard",
+      "name": "Orchard Valley",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/orchard.webp",
+      "icon": "/maps/thumbs/orchard.webp"
+    },
+    {
+      "id": "longleaf",
+      "name": "Longleaf Crossing",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/longleaf.webp",
+      "icon": "/maps/thumbs/longleaf.webp"
+    },
+    {
+      "id": "mangrove",
+      "name": "Mangrove Reach",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/mangrove.webp",
+      "icon": "/maps/thumbs/mangrove.webp"
+    },
+    {
+      "id": "saltwind",
+      "name": "Saltwind Narrows",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/saltwind.webp",
+      "icon": "/maps/thumbs/saltwind.webp"
+    },
+    {
+      "id": "reservoir",
+      "name": "Highland Reservoir",
+      "detail": "Solo trial · Standard battle",
+      "image": "/maps/reservoir.webp",
+      "icon": "/maps/thumbs/reservoir.webp"
+    }
+  ]
+}

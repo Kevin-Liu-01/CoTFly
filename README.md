@@ -4,7 +4,7 @@ A fruit fly in a tiny tank helmet plays **Claude of Tanks**. Watch it steer, loo
 
 **[Play CoTFly](https://fly.kevinliu.studio/)**
 
-The console combines a live 3D pilot, the actual tank battle, and an interactive neuron cluster. Pick an Abrams, Leopard, T-90A, Bradley, BMP-2 or Sheridan; deploy the fly, give it sugar, pause, or take control yourself. The layout fits desktop screens and switches between Battle, Pilot and Neural displays on phones.
+The console combines a live 3D pilot, the actual tank battle, and an interactive neuron cluster. Initialize a trial with searchable, illustrated selectors for all 171 production tanks and 30 battlefields. CoTFly owns loading progress and launches straight into battle without a splash gate or garage. Give the pilot sugar, pause, take control yourself, or repeat a trial. The layout fits desktop screens and switches between Battle, Pilot and Neural displays on phones.
 
 ## Run locally
 
@@ -15,7 +15,7 @@ npm ci
 npm run dev
 ```
 
-Open the printed local URL. `/` opens CoTFly; legacy `/fly` links redirect to `/`. The embedded game uses `/game.html?fly-agent=1&nosplash=1` on the same origin.
+Open the printed local URL. `/` opens CoTFly; legacy `/fly` links redirect to `/`. The embedded game uses `/game.html?fly-agent=1&trial=<id>` on the same origin.
 
 ```sh
 npm run test:fly
@@ -23,6 +23,8 @@ npm run typecheck
 npm run build
 npm run preview
 ```
+
+The lightweight selector catalog is generated from the game registries with `node tools/cotfly-catalog.mjs`. The fly tests check catalog parity and every preview asset. Each trial has its own message ID so a previous battle cannot uncover a new loading screen.
 
 Vercel automatically runs the fly tests, type checks and production build on Git pushes, then serves `dist`. The final build publishes the console as `index.html` and the embedded game as `game.html`; no environment variables are required for the autonomous solo experience. The inherited multiplayer services are optional and require their own configuration.
 

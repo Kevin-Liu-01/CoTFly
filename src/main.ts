@@ -1,4 +1,5 @@
 import type { RuntimeValue } from './runtimeTypes.ts';
+import { flyEmbedded as flyEmbedRequested, createFlyBootScreen, createFlyBattleLoader, createFlyGarage, createFlyGarageStage } from './fly/embedded.ts';
 /**
  * main.ts — typed integration entry point (ARCHITECTURE.md §4, §5).
  *
@@ -119,12 +120,11 @@ import {
 } from './vehicles/materials.ts';
 import './ui/motion.css';
 import './ui/responsiveSurfaces.css';
-import './ui/garage.css';
-import { createGarage } from './ui/garage.ts';
+
 import { installBattleRecords } from './game/profile.ts';
-import {
-  createGarageStage, GARAGE_PODIUM_TOP_Y_M, GARAGE_TRACK_AXIS_YAW_RAD,
-} from './ui/garageStage.ts';
+import { GARAGE_PLATFORM_GEOMETRY, GARAGE_HERO_HEADING_RAD } from './game/garagePresentationPose.ts';
+const GARAGE_PODIUM_TOP_Y_M = GARAGE_PLATFORM_GEOMETRY.topYM;
+const GARAGE_TRACK_AXIS_YAW_RAD = GARAGE_HERO_HEADING_RAD;
 import { createGarageDressingAccess } from './game/garageDressingAccess.ts';
 import { createGarageDressingScheduler } from './game/garageDressingScheduler.ts';
 import {
@@ -215,8 +215,6 @@ import { createFxRuntimeAccess } from './fx/fxRuntimeAccess.ts';
 import { releaseObject3DGpuResources } from './engine/resourceLifetime.ts';
 // BOOT SCREENS: the entry/loading gate (markup inline in index.html so first
 // paint never waits on this module graph) and the pre-battle roster screen.
-import { createBootScreen } from './ui/bootScreen.ts';
-import { createBattleLoadScreen } from './ui/battleLoad.ts';
 import { createEndOverlayRuntime } from './ui/endOverlayRuntime.ts';
 import { createStartupIntent } from './game/startupIntent.ts';
 import { createSelectedVehicleSelection } from './game/selectedVehicleSelection.ts';
@@ -273,7 +271,7 @@ const selectedVehicle = createSelectedVehicleSelection({
   visibleIds: VISIBLE_TANK_IDS,
   defaultId: 'm1a3',
 });
-const bootSelectedBuilderP = STUDIO_BOOT_INTENT
+const bootSelectedBuilderP = (STUDIO_BOOT_INTENT || flyEmbedRequested)
   ? Promise.resolve()
   : ensureTankBuilder(selectedVehicle.id);
 
@@ -295,7 +293,8 @@ const _rayO = new THREE.Vector3();
 // registers its listeners mid-module and must never fire tick() while later
 // top-level consts are still in their temporal dead zone.
 // ---------------------------------------------------------------------------
-const boot = createBootScreen({ mode: STUDIO_BOOT_INTENT ? 'studio' : 'garage' });
+if (!flyEmbedRequested) await import('./ui/garage.css');
+const boot = flyEmbedRequested ? createFlyBootScreen() : (await import('./ui/bootScreen.ts')).createBootScreen({ mode: STUDIO_BOOT_INTENT ? 'studio' : 'garage' });
 // Every UI surface consumes the same semantic viewport contract. Install it
 // before HUD/garage construction so their first visible frame already has the
 // correct width, height, orientation and interaction-mode attributes.
@@ -366,7 +365,7 @@ const lighting: MainLightingRuntime = await bootStage(
 // dormancy now; lighting deliberately renders every native CSM depth map once
 // before honoring it because all PCF samplers remain active in the shader.
 // Subsequent garage frames skip the invisible 100-700 m shadow redraws.
-if (!STUDIO_BOOT_INTENT) lighting.setFarCascadeDormant(true);
+if (!STUDIO_BOOT_INTENT && !flyEmbedRequested) lighting.setFarCascadeDormant(true);
 mountDiagOverlay({ tier: resolveDeviceTier(renderer), diag: _diag, rescue: _diagRescue, renderer });
 
 const engineCtx = {
@@ -622,7 +621,7 @@ bus.on('module:state', (payload) => {
 GARAGE_POS.y = 0;
 let selectedGarageVariantId = loadGarageVariantId();
 const { stage: garageStage, dressing: garageDressing } = await bootStage('garage', async () => {
-  const gs = createGarageStage(
+  const gs = flyEmbedRequested ? createFlyGarageStage() : (await import('./ui/garageStage.ts')).createGarageStage(
     engineCtx,
     GARAGE_POS,
     selectedGarageVariantId,
@@ -857,7 +856,7 @@ for (const type of ['pointerdown', 'wheel', 'keydown', 'touchstart', 'resize']) 
 // Gallery inspection and battle-player paths still request their own authored
 // quality tiers; this changes only the garage presentation cache.
 await bootStage('vehicle', async () => {
-  if (STUDIO_BOOT_INTENT) return;
+  if (STUDIO_BOOT_INTENT || flyEmbedRequested) return;
   // The branded boot screen is opaque. Keep its animation painting at a
   // bounded cadence, but do not charge one entire display frame for every
   // procedural texture checkpoint in the selected hero's cold bake.
@@ -1036,7 +1035,7 @@ bus.on('ui:battleStart', () => {
   playSurface.hideForBattle();
 });
 
-const garage: MainGarageRuntime = await bootStage('ui', () => createGarage({
+const garage: MainGarageRuntime = await bootStage('ui', async () => flyEmbedRequested ? createFlyGarage() : (await import('./ui/garage.ts')).createGarage({
   specs: VISIBLE_TANK_IDS.map(getSpec),
   bus,
   onSelect: (specId: string) => {
@@ -1288,7 +1287,7 @@ window.__GARAGE_WORKSHOP = createGarageWorkshopDiagnostics({
 // PRE-BATTLE LOADING SCREEN (src/ui/battleLoad.ts): map art + both rosters +
 // real build progress + countdown. Created here so its stylesheet/DOM is warm
 // before the first BATTLE press.
-const battleLoad = createBattleLoadScreen();
+const battleLoad = flyEmbedRequested ? createFlyBattleLoader() : (await import('./ui/battleLoad.ts')).createBattleLoadScreen();
 
 // STATE TRANSITIONS (src/ui/transition.ts): the shared branded veil/loading
 // screen every non-battle state swap passes through — garage↔studio (wired
@@ -1985,7 +1984,7 @@ const soloBattleLoading = createSoloBattleLoadingAccess({
     ensureTouchControls,
     preloadSettings: () => settings.preload(),
     preloadArmorAim: () => armorAimOverlay.preload(),
-    preloadGarageReturn: () => garageReturn.preload(),
+    preloadGarageReturn: () => flyEmbedRequested ? Promise.resolve() : garageReturn.preload(),
     planRoster: (specId: string, randomRoster: boolean) =>
       planBattleParticipantIds(game, specId, randomRoster),
     planCamoOverrides: (specId: string, mapId: string, randomRoster: boolean) =>
@@ -2007,8 +2006,8 @@ const soloBattleLoading = createSoloBattleLoadingAccess({
     getCamoSweep: () => camoSweepP,
     prepareRevealCamera: prepareBattleRevealCamera,
     resolveVisiblePreBattleSeconds,
-    preBattleHoldSeconds: PRE_BATTLE_HOLD_S,
-    minimumVisiblePreBattleSeconds: MIN_VISIBLE_PRE_BATTLE_S,
+    preBattleHoldSeconds: flyEmbedRequested ? 0 : PRE_BATTLE_HOLD_S,
+    minimumVisiblePreBattleSeconds: flyEmbedRequested ? 0 : MIN_VISIBLE_PRE_BATTLE_S,
     openBattle: battleRollout.open,
     scheduleDeferredWarm: scheduleDeferredCombatWarm,
     nextFrame,
@@ -2610,6 +2609,10 @@ const garageReturn = createGarageReturnAccess<BattleVisual>({
 });
 const enterGarage = garageReturn.enter;
 const leaveBattleToGarage = (): Promise<void> => {
+  if (flyEmbedRequested) {
+    window.parent.postMessage({source:'fly-arena', type:'return', trialId:new URLSearchParams(location.search).get('trial') ?? ''}, location.origin);
+    return Promise.resolve();
+  }
   const network = networkComposition.current;
   if (network?.launcher.pending) {
     // A retained-room rematch may still own unpublished or warming state.
@@ -2625,7 +2628,10 @@ const soloBattleEntry = createSoloBattleEntryRuntime({
   loading: soloBattleLoading,
   battleLoad,
   audio,
-  enterGarage,
+  enterGarage: () => {
+    if (flyEmbedRequested) throw new Error("Trial preparation failed. Please retry from the console.");
+    return enterGarage();
+  },
   nextFrame: nextPaintFrame,
   isVisibleSpecId: (specId: string) => VISIBLE_TANK_IDS.includes(specId),
   getSelectedSpecId: () => garage.getSelected(),
@@ -2795,7 +2801,6 @@ const mainFrame = createMainFrameRuntime({
 //     registration order), so the pumped tick samples the fresh press.
 // rAF re-arming is latched (rafQueued) so fallback ticks can never stack
 // extra rAF callbacks for a speed burst when frames come back.
-const flyEmbedRequested = new URLSearchParams(location.search).get('fly-agent') === '1' && window.parent !== window;
 const flyFrameDocument = flyEmbedRequested
   ? (await import('./fly/frameFocus.ts')).createFlyFrameDocument(window) : null;
 const frameLoop = createFrameLoopScheduler({
@@ -2925,11 +2930,13 @@ window.__SHOTS = {
 // shell-card presentation from the selected spec; the solo/network start
 // owners replace it with the real player after covered roster construction.
 playerBattleActions.setTank(getSpec(selectedVehicle.id));
+if (!flyEmbedRequested) {
 garage.show(selectedVehicle.id);
 garageEnvironmentPresentation.poseCamera(); // fallback pose until the orbit measures the hero
 showroom.start();
 garageFramePacer.reset(performance.now());
 setGarageSunTrim(true); // camo_spotting r2: boot lands on the garage screen
+}
 currentHud()?.setMode('hidden');
 
 // BOOT DEFERRAL seam: the battlefield build is deferred until BATTLE is
@@ -2944,7 +2951,7 @@ if (bootWorld) {
 await bootStage('post', async () => {
   // Direct Studio boot has no garage hero or dressing to present. Its own
   // covered entry renders the real world/camera before the boot veil lifts.
-  if (STUDIO_BOOT_INTENT) return;
+  if (STUDIO_BOOT_INTENT || flyEmbedRequested) return;
   await warmGarageGpuPipeline({
     renderer,
     scene,
@@ -3011,7 +3018,7 @@ studio = studioAccess.presentation;
 function preloadStudioIntent() { studioAccess.preloadIntent(); }
 function loadStudioRuntime() { return studioAccess.loadRuntime(); }
 
-if (!STUDIO_BOOT_INTENT) {
+if (!STUDIO_BOOT_INTENT && !flyEmbedRequested) {
   // Capture owns the first F8/navigation click until the Studio chunk exists;
   // createStudio installs the permanent toggle listener after import.
   studioAccess.installKeyboard();
@@ -3033,7 +3040,7 @@ if (STUDIO_BOOT_INTENT) {
 
 bootComplete = true;
 frameLoop.schedule();
-if (!STUDIO_BOOT_INTENT && selectedGarageVariantId !== 'verdant_motor_pool') {
+if (!STUDIO_BOOT_INTENT && !flyEmbedRequested && selectedGarageVariantId !== 'verdant_motor_pool') {
   // Keep the normal Verdant boot fast. A persisted outdoor choice hydrates
   // after readiness and never presents the removed synthetic map diorama.
   void garageEnvironmentPresentation.activate(selectedGarageVariantId);
@@ -3189,11 +3196,11 @@ if (flyEmbedRequested) {
   const { installFlyRuntime } = await import('./fly/runtime.ts');
   flyRuntime = installFlyRuntime({
     game,
-    start: async (tankId) => {
-      const allowed=['m1a1','leo2a6','t90a','m2a2_bradley','bmp2','m551_sheridan'];
-      if(!allowed.includes(tankId)) throw new Error('Choose a supported tank.');
+    start: async (tankId, mapId) => {
+      if (!VISIBLE_TANK_IDS.includes(tankId)) throw new Error('Choose a supported tank.');
+      if (!MAP_IDS.some(id => id === mapId)) throw new Error('Choose a supported battlefield.');
       await ensureTankBuilder(tankId);
-      return beginSoloBattle({specId:tankId,mapId:'desert',randomRoster:true});
+      return beginSoloBattle({specId:tankId,mapId,randomRoster:true});
     },
     setFire: (pressed) => pressed ? input.pressVirtual('fire') : input.releaseVirtual('fire'),
     action: (action) => {
@@ -3217,8 +3224,8 @@ if (flyEmbedRequested) {
   });
 }
 window.__GAME_READY = true;
-pedestal.queueNeighbors();
-if (!STUDIO_BOOT_INTENT) scheduleGarageDressingBuild();
+if (!flyEmbedRequested) pedestal.queueNeighbors();
+if (!STUDIO_BOOT_INTENT && !flyEmbedRequested) scheduleGarageDressingBuild();
 window.__BOOT_TIMINGS = BOOT_TIMINGS;
 window.__BOOT_MS = Math.round(performance.now() - BOOT_T0);
 // Direct Studio navigation skips garage-only construction on the critical
@@ -3235,7 +3242,7 @@ if (STUDIO_BOOT_INTENT) {
 // garage frame shortly after ready; if the lit band reads black, shadows-off
 // rescue + recompile (deviceDiag.ts). Skipped under webdriver so harness
 // captures stay deterministic; a second check runs at battle start.
-if (!navigator.webdriver || new URLSearchParams(location.search).has('diagforce')) {
+if (!flyEmbedRequested && (!navigator.webdriver || new URLSearchParams(location.search).has('diagforce'))) {
   const garageWatchdogGeneration = sceneWatchdogEntryGeneration;
   const garageWatchdogWorld = currentWorld();
   const isCurrentGarage = () => game.phase === 'garage' && !studio.active && !battleEntryLifecycle.pending

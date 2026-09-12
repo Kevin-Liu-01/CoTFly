@@ -1,3 +1,5 @@
+import { createTrialSetup } from './trialSetup.ts';
+import type { TrialSelection } from './trialSetup.ts';
 import { createSpecimen } from "./specimen.ts";
 import type { SpecimenSignals } from "./specimen.ts";
 import { createStation } from "./actuators.ts";
@@ -33,9 +35,24 @@ let running = false,
   hasTelemetry = false,
   errorTimer = 0;
 const history: number[] = [];
+let trial: TrialSelection;
+let loadingProgress = 0;
+let trialPending = false;
+const setup = createTrialSetup(selection => { trial = selection; launch(); });
+trial = setup.selection();
+function progress(fraction: number, message?: string) {
+  loadingProgress = Math.max(loadingProgress, Math.min(1, fraction));
+  const percent = Math.round(loadingProgress * 100);
+  $("trial-progress").setAttribute("aria-valuenow", String(percent));
+  $("trial-progress-fill").style.transform = `scaleX(${loadingProgress})`;
+  $("loading-percent").textContent = `${percent}%`;
+  if (message) $("loading-text").textContent = message;
+  for (const [id, threshold] of [["runtime", 0], ["world", .24], ["pilot", .68]] as const)
+    $("load-stage-" + id).classList.toggle("current", loadingProgress >= threshold);
+}
 const command = (type: string, payload: object = {}) =>
   game.contentWindow?.postMessage(
-    { source: "fly-lab", type, ...payload },
+    { source: "fly-lab", trialId: String(generation), type, ...payload },
     location.origin,
   );
 const label = (id: string, text: string) => {
@@ -61,6 +78,8 @@ function resetTelemetry() {
   signals.active = false;
   signals.paused = false;
   signals.sugar = false;
+  signals.fire = false;
+  $("pulse").classList.remove("active");
   signals.throttle = 0;
   signals.steer = 0;
   signals.arms = createStation();
@@ -89,6 +108,16 @@ function resetTelemetry() {
 }
 function launch() {
   clearTimeout(errorTimer);
+  trialPending = true;
+  loadingProgress = 0;
+  progress(0, "Connecting battle systems…");
+  $("loading-title").textContent = trial.tank.name;
+  $("loading-map-name").textContent = trial.map.name;
+  $<HTMLImageElement>("loading-map").src = trial.map.image;
+  $<HTMLImageElement>("loading-tank").src = trial.tank.image;
+  $("tank-label").textContent = `${trial.tank.name} · ${trial.map.name}`;
+  $<HTMLButtonElement>("configure-trial").disabled = true;
+  showPanel("battle");
   running = false;
   human = false;
   hasTelemetry = false;
@@ -99,14 +128,16 @@ function launch() {
   $("loading").hidden = false;
   $("retry").hidden = true;
   game.hidden = false;
+  game.style.visibility = "hidden";
   $("arena-tag").hidden = true;
-  $("loading-text").textContent = "Loading Claude of Tanks…";
+  $("loading-text").textContent = "Connecting battle systems…";
   $("arena-status").textContent = "LOADING";
   $("brain-status").textContent = "STANDBY";
   $("specimen-status").textContent = "PREPARING";
   status("PREPARING BATTLE");
   buttons(true);
-  game.src = "/game.html?fly-agent=1&nosplash=1";
+  game.src = `/game.html?fly-agent=1&trial=${++generation}`;
+  $("specimen-id").textContent = String(generation - 1).padStart(3, "0");
   errorTimer = window.setTimeout(() => {
     if (!hasTelemetry) {
       $("loading-text").textContent =
@@ -115,10 +146,26 @@ function launch() {
     }
   }, 90000);
 }
-$("wake").addEventListener("click", launch);
+$("wake").addEventListener("click", () => setup.open());
+$("configure-trial").addEventListener("click", () => setup.open());
+function cancelTrial() {
+  running = false;
+  hasTelemetry = false;
+  resetTelemetry();
+  buttons(true);
+  clearTimeout(errorTimer);
+  trialPending = false;
+  game.src = "about:blank";
+  game.hidden = true;
+  $("loading").hidden = true;
+  $("arena-idle").hidden = false;
+  $<HTMLButtonElement>("configure-trial").disabled = false;
+  for (const id of ["arena-status", "brain-status", "specimen-status"]) $(id).textContent = "STANDBY";
+  status("READY TO DEPLOY");
+}
+$("cancel-trial").addEventListener("click", cancelTrial);
 $("retry").addEventListener("click", launch);
 $("restart").addEventListener("click", () => {
-  $("specimen-id").textContent = String(++generation).padStart(3, "0");
   launch();
 });
 $("pause").addEventListener("click", () => {
@@ -202,22 +249,32 @@ window.addEventListener("message", (event) => {
   )
     return;
   const d = event.data;
+  if (d.trialId !== String(generation)) return;
+  if (d.type === "return") { cancelTrial(); setup.open(); return; }
   if (d.type === "ready") {
-    const tankId = $<HTMLSelectElement>("tank-select").value;
-    command("start", { tankId });
-    $("loading-text").textContent = "Deploying the selected vehicle…";
+    if (!trialPending) return;
+    command("start", { tankId: trial.tank.id, mapId: trial.map.id });
+    progress(.24, "Preparing the selected battlefield…");
     return;
   }
-  if (d.type === "error") {
+  if (d.type === "progress" && trialPending) {
+    progress(typeof d.fraction === "number" ? d.fraction : loadingProgress, d.label);
+    return;
+  }
+  if (d.type === "error" && trialPending) {
     clearTimeout(errorTimer);
     $("loading-text").textContent = d.message;
     $("retry").hidden = false;
     status("DEPLOYMENT FAILED");
     return;
   }
-  if (d.type !== "telemetry") return;
+  if (d.type !== "telemetry" || (!trialPending && !hasTelemetry)) return;
   if (!hasTelemetry) {
     hasTelemetry = true;
+    trialPending = false;
+    progress(1, "Trial active");
+    game.style.visibility = "visible";
+    $<HTMLButtonElement>("configure-trial").disabled = false;
     clearTimeout(errorTimer);
     running = true;
     signals.active = true;
@@ -267,7 +324,7 @@ window.addEventListener("message", (event) => {
   $("target-state").textContent = d.target
     ? "Visual contact"
     : `${d.enemies} enemies remaining`;
-  $("tank-label").textContent = `${d.tank.toUpperCase()} · DESERT`;
+  $("tank-label").textContent = `${d.tank} · ${trial.map.name}`;
   $("repair-status").textContent =
     d.repairRemaining > 0 ? `${Math.ceil(d.repairRemaining)}s` : "Ready";
   $("missile-status").textContent = d.missileAvailable
@@ -298,6 +355,7 @@ window.addEventListener("message", (event) => {
   );
   if (d.ended) {
     signals.active = false;
+    if (running) command("pause", { paused: true });
     running = false;
     status("ROUND COMPLETE");
     for (const id of ["arena-status", "brain-status", "specimen-status"])

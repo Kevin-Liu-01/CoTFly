@@ -5,6 +5,7 @@ import { createFlyFrameDocument } from "./frameFocus.ts";
 const messages = [],
   listeners = {};
 const parent = { postMessage: (m, origin) => messages.push({ m, origin }) };
+globalThis.document = {documentElement:{dataset:{}}};
 globalThis.location = { origin: "https://fly.test" };
 globalThis.window = {
   parent,
@@ -35,12 +36,14 @@ const game = {
   timeS: 0,
   result: null,
 };
+let selectedTrial;
 let starts = 0,
   visible = false,
   blocked = false;
 const runtime = installFlyRuntime({
   game,
-  start: async () => {
+  start: async (tankId, mapId) => {
+    selectedTrial = {tankId, mapId};
     starts++;
     game.phase = "battle";
   },
@@ -53,13 +56,15 @@ const request = (type, extra = {}, origin = location.origin, source = parent) =>
   listeners.message({
     origin,
     source,
-    data: { source: "fly-lab", type, ...extra },
+    data: { source: "fly-lab", trialId:"", type, ...extra },
   });
 await request("start", {}, "https://evil.test");
 await request("start", {}, location.origin, {});
-assert.equal(starts, 0, "untrusted origin or source cannot drive arena");
+await request("start", {trialId:"previous-trial"});
+assert.equal(starts, 0, "untrusted origin, source, or stale trial cannot drive arena");
+await request("start", {tankId:"bmp2", mapId:"alpine"});
 await request("start");
-await request("start");
+assert.deepEqual(selectedTrial, {tankId:"bmp2", mapId:"alpine"}, "trial selection reaches the battle entry without hardcoded defaults");
 assert.equal(starts, 1, "start deduplicates");
 for (let i = 0; i < 60; i++) runtime.beforeStep();
 assert.equal(player.input.fire, false, "unspotted enemy cannot trigger fire");
@@ -203,3 +208,22 @@ assert.deepEqual(
   ["extinguish", "repair", "firstAid"],
   "different kit actions require separate presses even on the same physical panel",
 );
+
+// The parent must never reveal a half-built roster just because phase became battle.
+let finishLoading;
+const loadingGame = {phase:'battle', player, tanks:[player], timeS:1, result:null};
+const loadingRuntime = installFlyRuntime({
+  game: loadingGame,
+  start: () => new Promise(resolve => { finishLoading = resolve; }),
+  isSpotted: () => false, raycast: () => null, follow() {},
+});
+const launchPromise = request('start');
+messages.length = 0;
+loadingRuntime.afterStep();
+assert.equal(messages.length, 0, 'no telemetry before covered deployment finishes');
+finishLoading();
+await launchPromise;
+assert.equal(messages.at(-1).m.type, 'started');
+loadingRuntime.afterStep();
+assert.equal(messages.at(-1).m.type, 'telemetry', 'reveal only follows completed deployment');
+console.log('fly trial entry: selection forwarding and deployment reveal gate PASS');

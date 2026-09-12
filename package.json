@@ -135,7 +135,7 @@
     "typecheck": "node node_modules/@typescript/native/bin/tsc -p tsconfig.json --noEmit && node tools/core-unused-check.mjs",
     "dev": "vite --host 127.0.0.1",
     "preview": "vite preview --host 127.0.0.1",
-    "test:fly": "node src/fly/controller.selftest.mjs && node src/fly/connectome.selftest.mjs && node src/fly/runtime.selftest.mjs"
+    "test:fly": "node tools/cotfly-catalog.mjs --check && node src/fly/embedded.selftest.mjs && node src/fly/controller.selftest.mjs && node src/fly/connectome.selftest.mjs && node src/fly/runtime.selftest.mjs"
   },
   "keywords": [
     "threejs",

@@ -86,20 +86,7 @@
           ><span><span class="brand-cot">CoT</span>Fly<small>Autonomous tank command</small></span></a
         >
         <div class="controls">
-          <label class="tank-picker"
-            ><span>VEHICLE</span
-            ><select
-              id="tank-select"
-              aria-label="Tank to deploy"
-              title="Vehicle for the next deployment"
-            >
-              <option value="m1a1">M1A1 Abrams</option>
-              <option value="leo2a6">Leopard 2A6</option>
-              <option value="t90a">T-90A</option>
-              <option value="m2a2_bradley">M2A2 Bradley · Missiles</option>
-              <option value="bmp2">BMP-2 · Missiles</option>
-              <option value="m551_sheridan">M551 Sheridan · Missiles</option>
-            </select></label
+          <button id="configure-trial" class="button" aria-label="Configure trial" title="Configure trial"><svg><use href="#i-target" /></svg><span>New trial</span></button
           ><button id="pause" class="button" aria-label="Pause simulation" title="Pause simulation" disabled>
             <svg><use href="#i-pause" /></svg><span>Pause</span></button
           ><button id="sugar" class="button" aria-label="Sugar boost" title="Sugar boost" disabled>
@@ -110,8 +97,8 @@
             id="restart"
             class="button square"
             disabled
-            aria-label="New fly"
-            title="New fly"
+            aria-label="Repeat trial"
+            title="Repeat trial"
           >
             <svg><use href="#i-reset" /></svg>
           </button>
@@ -204,7 +191,7 @@
             <div class="panel-top">
               <span
                 ><svg><use href="#i-target" /></svg
-                ><span id="tank-label">M1A1 ABRAMS · DESERT</span></span
+                ><span id="tank-label">M1A1 Abrams · Sirocco Wadi</span></span
               >
               <div class="arena-tools">
                 <span class="status" id="arena-status">STANDBY</span
@@ -229,16 +216,15 @@
             </div>
             <div class="monitor" id="monitor">
               <div id="arena-idle" class="arena-idle">
-                <div class="idle-reticle" aria-hidden="true">
-                  <svg><use href="#i-target" /></svg>
+                <img id="idle-map" class="idle-map" alt="" />
+                <div class="trial-idle-content">
+                  <span class="eyebrow">TRIAL CONTROL / STANDBY</span>
+                  <img id="idle-tank" class="idle-tank" alt="Selected vehicle preview" />
+                  <h2 id="idle-tank-name"></h2>
+                  <span id="idle-map-name"></span>
+                  <button id="wake" class="button primary"><svg><use href="#i-target" /></svg><span>CONFIGURE TRIAL</span></button>
+                  <span class="load-note">Choose a vehicle and battlefield to begin</span>
                 </div>
-                <span class="eyebrow">BATTLE SYSTEM / STANDBY</span>
-                <button id="wake" class="button primary">
-                  <svg><use href="#i-play" /></svg
-                  ><span>DEPLOY FLY</span></button
-                ><span class="load-note"
-                  >Select vehicle · Deploy autonomous pilot</span
-                >
               </div>
               <iframe
                 id="game"
@@ -248,12 +234,17 @@
               ></iframe>
               <div id="eye-grid" class="eye-grid" hidden></div>
               <div id="loading" class="loading-veil" hidden>
-                <svg class="loading-icon"><use href="#i-brain" /></svg>
-                <h3>Preparing the battlefield</h3>
-                <p id="loading-text" role="status">Loading Claude of Tanks…</p>
-                <button id="retry" class="button" hidden>
-                  Retry deployment
-                </button>
+                <img id="loading-map" class="loading-map" alt="" />
+                <div class="trial-loading-content">
+                  <span class="loading-brand"><span class="brand-cot">CoT</span>Fly <small>TRIAL INITIALIZATION</small></span>
+                  <img id="loading-tank" alt="Selected vehicle" />
+                  <h3 id="loading-title">Preparing trial</h3>
+                  <span id="loading-map-name" class="load-note"></span>
+                  <div class="trial-progress-track" role="progressbar" aria-label="Trial loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="trial-progress"><i id="trial-progress-fill"></i></div>
+                  <div class="trial-progress-label"><span id="loading-text" role="status">Connecting battle systems…</span><b id="loading-percent">0%</b></div>
+                  <div class="loading-stages"><span id="load-stage-runtime">01 · Systems</span><span id="load-stage-world">02 · Battlefield</span><span id="load-stage-pilot">03 · Deployment</span></div>
+                  <div class="loading-actions"><button id="retry" class="button" hidden>Retry trial</button><button id="cancel-trial" class="button">Cancel</button></div>
+                </div>
               </div>
               <div id="arena-tag" class="arena-tag" hidden>
                 <span class="dot"></span>FLY CONTROL
@@ -369,6 +360,16 @@
         ><button id="sources-open">MODEL / SOURCES ↗</button>
       </footer>
     </div>
+    <dialog id="trial-setup" aria-labelledby="trial-heading">
+      <div class="trial-dialog-heading"><div><span class="eyebrow"><span class="brand-cot">CoT</span>Fly / TRIAL CONTROL</span><h2 id="trial-heading">Initialize trial</h2></div><button id="trial-close" class="icon-button" aria-label="Close trial setup">×</button></div>
+      <div class="trial-cards">
+        <article class="trial-card"><button id="choose-tank" class="trial-select" aria-haspopup="listbox" aria-expanded="false" aria-controls="trial-options"><svg><use href="#i-shield" /></svg><span>Vehicle</span><span class="select-chevron">⌄</span></button><img id="trial-tank-image" alt="Selected vehicle preview" /><div class="trial-card-copy"><b id="trial-tank-name"></b><small id="trial-tank-detail"></small></div></article>
+        <article class="trial-card map-card"><button id="choose-map" class="trial-select" aria-haspopup="listbox" aria-expanded="false" aria-controls="trial-options"><svg><use href="#i-target" /></svg><span>Battlefield</span><span class="select-chevron">⌄</span></button><img id="trial-map-image" alt="Selected battlefield preview" /><div class="trial-card-copy"><b id="trial-map-name"></b><small id="trial-map-detail"></small></div></article>
+      </div>
+      <div class="trial-brief"><span><svg><use href="#i-brain" /></svg>Neural fly pilot</span><span><svg><use href="#i-target" /></svg>Solo · AI opponents</span></div>
+      <div class="trial-dialog-footer"><span id="trial-summary"></span><button id="trial-launch" class="button primary"><svg><use href="#i-play" /></svg><span>INITIALIZE TRIAL</span></button></div>
+      <div id="trial-dropdown" class="trial-dropdown" hidden><div class="trial-search-row"><input id="trial-search" type="search" autocomplete="off" aria-controls="trial-options" /><button id="trial-menu-close" class="icon-button" aria-label="Close selector">×</button></div><span id="trial-option-count" role="status"></span><div id="trial-options" role="listbox"></div><p id="trial-empty" hidden>No matches. Try another search.</p></div>
+    </dialog>
     <dialog id="about">
       <button id="about-close" class="dialog-close" aria-label="Close about">
         ×</button

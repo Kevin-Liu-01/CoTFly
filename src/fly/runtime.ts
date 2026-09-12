@@ -42,7 +42,7 @@ export interface FlyPorts {
     result: string | null;
   };
   isSpotted(id: string): boolean;
-  start(tankId: string): Promise<unknown>;
+  start(tankId: string, mapId: string): Promise<unknown>;
   action?(
     action: "repair" | "firstAid" | "extinguish" | "missile" | "cannon",
   ): void;
@@ -67,11 +67,13 @@ export interface FlyRuntime {
 export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
   let enabled = true,
     started = false,
+    deploymentReady = false,
     sugarUntil = 0,
     lastReport = -1,
     lastCamera = -1,
     targetId: string | null = null,
     cameraYaw = 0;
+  const trialId = new URLSearchParams(location.search).get("trial") ?? "";
   const controller = createFlyController();
   const station = createStation();
   const kitReadyAt = [0, 0, 0];
@@ -100,7 +102,7 @@ export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
     targetPoint = new Vector3();
   const send = (type: string, payload: object = {}) =>
     window.parent.postMessage(
-      { source: "fly-arena", type, ...payload },
+      { source: "fly-arena", trialId, type, ...payload },
       location.origin,
     );
   const runtime: FlyRuntime = {
@@ -257,7 +259,7 @@ export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
     afterStep() {
       const { game } = ports,
         player = game.player;
-      if (game.timeS - lastReport < 1 / 30 || !player?.combat || !player.state)
+      if (!deploymentReady || game.timeS - lastReport < 1 / 30 || !player?.combat || !player.state)
         return;
       lastReport = game.timeS;
       send("telemetry", {
@@ -319,7 +321,8 @@ export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
     if (
       event.origin !== location.origin ||
       event.source !== window.parent ||
-      event.data?.source !== "fly-lab"
+      event.data?.source !== "fly-lab" ||
+      event.data?.trialId !== trialId
     )
       return;
     switch (event.data.type) {
@@ -329,12 +332,14 @@ export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
         try {
           await ports.start(
             typeof event.data.tankId === "string" ? event.data.tankId : "m1a1",
+            typeof event.data.mapId === "string" ? event.data.mapId : "desert",
           );
           if (ports.game.phase !== "battle")
             throw new Error(
               "The arena could not finish loading. Please retry.",
             );
           cameraYaw = ports.game.player?.state?.yaw ?? 0;
+          deploymentReady = true;
           send("started");
         } catch (error) {
           started = false;
@@ -352,6 +357,7 @@ export function installFlyRuntime(ports: FlyPorts): FlyRuntime {
         break;
       case "pilot":
         enabled = event.data.enabled === true;
+        document.documentElement.dataset.flyControl = enabled ? "auto" : "human";
         runtime.paused = false;
         ports.setFire?.(false);
         if (enabled) ports.releaseHumanControls?.();
