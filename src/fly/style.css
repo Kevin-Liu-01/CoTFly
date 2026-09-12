@@ -154,7 +154,7 @@ dialog {max-width:580px;width:calc(100% - 30px);max-height:85dvh;overflow:auto;p
 @media (prefers-reduced-motion:reduce) {button {transition:none}.button:active:not(:disabled) {transform:none}.lab::after {transform:none}}
 
 @media (min-width:600px) and (max-width:900px) and (max-height:600px) {
-  .lab {grid-template-rows:52px 30px minmax(0,1fr) 14px;gap:6px;padding:9px}
+  .lab {grid-template-rows:52px 30px minmax(0,1fr) 44px;gap:6px;padding:9px}
   .masthead {grid-template-columns:auto minmax(0,1fr) auto 26px;gap:7px;padding:4px 7px}.controls {grid-column:2;grid-row:1}.header-status {grid-column:3}.masthead > #about-open {grid-column:4}.wordmark {font-size:14px}.wordmark svg {width:19px}.controls .button {width:28px}.tank-picker select {font-size:9px}
   main,.expanded main {grid-template-rows:minmax(0,1fr) 53px;gap:6px}.stats {grid-template-columns:repeat(4,minmax(0,1fr))}.stat-value b {font-size:18px}.stat-label,.stat-note {font-size:7px}.panel-top {height:27px;min-height:27px}.brain-layout {grid-template-rows:minmax(0,1fr) 47px;grid-template-columns:minmax(0,1fr) 170px}.neuron-detail {grid-template-rows:33px 8px 14px 23px 2px minmax(0,1fr);padding:6px;gap:3px}.cell-picker select {height:21px;margin-top:2px}.neuron-detail h2 {font-size:12px}.activation > b {font-size:23px}.neuron-metrics {font-size:8px;gap:2px}.neural-history {padding:4px 8px;gap:2px;grid-template-rows:10px minmax(0,1fr) 8px}.history-label {font-size:7px}.motor-deck,.equipment-status,.intent {padding:4px 8px}.station-readout {padding:3px 8px}.station-readout > span {height:24px}
 }
