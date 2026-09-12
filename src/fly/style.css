@@ -119,7 +119,7 @@ footer {display:flex;justify-content:space-between;align-items:center;gap:10px;m
 footer > span {display:flex;align-items:center;gap:6px}footer b {font-weight:400;color:#b8c2a0}footer button {background:transparent;border:0;padding:4px 0;font-size:8px;color:#b0bc96;white-space:nowrap}
 /* Raised repository keys share the console's olive metal and brass accents. */
 .repo-links {display:flex;align-items:center;justify-content:center;gap:8px;min-width:0;font-size:11px;white-space:nowrap}
-.repo-button {display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 0 0 11px;min-width:0;border:1px solid #58664a;border-bottom:3px solid #111b11;border-radius:4px;background:linear-gradient(#35432e,#283622);box-shadow:inset 0 1px #bacba525,0 1px #70815c55;color:#c8d1bc;transition:transform 120ms ease-out;touch-action:manipulation}
+.repo-button {display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 0 0 11px;min-width:0;border:1px solid #58664a;border-radius:4px;background:linear-gradient(#35432e,#283622);box-shadow:inset 0 1px #bacba525;color:#c8d1bc;transition:transform 120ms ease-out;touch-action:manipulation}
 .repo-button-primary {border-top-color:#9a8c54;border-inline-color:#776b42;background:linear-gradient(#494c30,#353c25)}
 .repo-button .repo-icon {width:14px;height:14px;color:#adbb9c}
 .repo-name {font-weight:700;letter-spacing:-.1px}
