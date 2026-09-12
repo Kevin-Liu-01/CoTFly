@@ -8,14 +8,8 @@
   <style>
     :root {-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-synthesis:none}
     html,body {margin:0;padding:0;width:var(--cot-viewport-width,100dvw);height:var(--cot-viewport-height,100dvh);overflow:hidden;background:#080f11;touch-action:manipulation}
-    /* CoTFly presents these instruments in the surrounding console. Keep aim,
-       contacts, ammo and the tactical map inside the battle viewport. */
-    .cot-hud .cot-ear,.cot-hud .cot-drive,.cot-hud .cot-net,.cot-hud .cot-dp,
-    .cot-hud .cot-prebattle,.cot-hud .cot-spec,.cot-end,.cot-gear,.cot-hints,.cot-si-stats {display:none!important}
-    html:not([data-fly-control="human"]) .cot-shells,
-    html:not([data-fly-control="human"]) .cot-special {display:none!important}
-    .cot-hud .cot-top {transform:translateX(-50%) scale(.8);transform-origin:top center}
-    .cot-hud .cot-minimap {max-width:150px;max-height:150px;right:10px;bottom:10px}
+    /* CoTFly owns trial completion; the battle uses the complete native HUD. */
+    .cot-end {display:none!important}
     #app {position:fixed;inset:0} #app canvas {display:block;width:100%;height:100%}
   </style>
   <script>
