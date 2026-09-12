@@ -1,0 +1,107 @@
+{
+  "metadata.gallery.description": {
+    "context": "SEO copy for a tank-game inspection page. Translate armor, module, crew, markings, and exact-surface as technical vehicle-inspection terms. Keep Claude of Tanks and Tank Gallery as product names."
+  },
+  "metadata.docsBuild.description": {
+    "context": "SEO copy about software construction. Translate deterministic simulation as deterministic software simulation, not a generic demonstration."
+  },
+  "metadata.docsSimulation.description": {
+    "context": "SEO copy for an armored combat simulation manual. Translate armor, ballistics, modules, crew, spotting, missiles, and reload systems into natural game-development terminology."
+  },
+  "metadata.docsVehicles.description": {
+    "context": "SEO copy for procedural armored vehicles. Translate tracks as tank tracks, rig as an articulated 3D rig, and armor anatomy as the modeled armor layout."
+  },
+  "metadata.docsMultiplayer.description": {
+    "context": "SEO copy about networking architecture. Translate room, authority, prediction, reconciliation, snapshots, spotting, bots, and reconnects into natural multiplayer engineering terminology."
+  },
+  "metadata.docsInterface.description": {
+    "context": "SEO copy for game UI. Keep Garage, HUD, killcam, and Scene Studio as established feature names where a natural Chinese equivalent would be ambiguous."
+  },
+  "metadata.room.title.hostLan": {
+    "context": "Private invitation metadata. Preserve the {host} placeholder and Claude of Tanks product name. LAN means local-area-network multiplayer."
+  },
+  "metadata.room.description.hostLan": {
+    "context": "Private invitation metadata. Preserve {host} and {room} exactly; they are user-authored host and room-code values and must never be translated."
+  },
+  "metadata.docs.headline": {
+    "context": "JSON-LD TechArticle headline. Keep Claude of Tanks as a product name."
+  },
+  "metadata.docsBuild.headline": {
+    "context": "JSON-LD TechArticle headline. Worktrees are isolated git working trees."
+  },
+  "metadata.docsModels.headline": {
+    "context": "JSON-LD TechArticle headline. Procedural means programmatically generated."
+  },
+  "metadata.docsSimulation.headline": {
+    "context": "JSON-LD TechArticle headline. Combat means armored tank combat."
+  },
+  "metadata.docsVehicles.headline": {
+    "context": "JSON-LD TechArticle headline. Running gear means tank tracks and suspension."
+  },
+  "metadata.docsRendering.headline": {
+    "context": "JSON-LD TechArticle headline. Rendering is 3D graphics rendering."
+  },
+  "metadata.docsPerformance.headline": {
+    "context": "JSON-LD TechArticle headline. Loading means asset/game loading."
+  },
+  "metadata.docsWorlds.headline": {
+    "context": "JSON-LD TechArticle headline. Destruction means destructible terrain."
+  },
+  "metadata.docsAi.headline": {
+    "context": "JSON-LD TechArticle headline. Bots are autonomous game opponents."
+  },
+  "metadata.docsMultiplayer.headline": {
+    "context": "JSON-LD TechArticle headline. Authority means server-authoritative."
+  },
+  "metadata.docsAudio.headline": {
+    "context": "JSON-LD TechArticle headline. FX means sound effects."
+  },
+  "metadata.docsInterface.headline": {
+    "context": "JSON-LD TechArticle headline. Controls means player controls."
+  },
+  "metadata.docsStudio.headline": {
+    "context": "JSON-LD TechArticle headline. Keep Scene Studio as a product name."
+  },
+  "metadata.docs.crumb": {
+    "context": "Breadcrumb label for the documentation section."
+  },
+  "metadata.docs.structuredDescription": {
+    "context": "JSON-LD TechArticle long description. Keep Claude of Tanks, Tank Gallery, Scene Studio as product names."
+  },
+  "metadata.docsBuild.structuredDescription": {
+    "context": "JSON-LD TechArticle long description. Worktrees/proof loops are engineering terms."
+  },
+  "metadata.docsModels.structuredDescription": {
+    "context": "JSON-LD TechArticle long description. Rig means articulated 3D rig."
+  },
+  "metadata.docsSimulation.structuredDescription": {
+    "context": "JSON-LD TechArticle long description. Ballistics/armor/spotting are tank-combat terms."
+  },
+  "metadata.docsVehicles.structuredDescription": {
+    "context": "JSON-LD TechArticle long description. Preserve {{COT_PRODUCTION_VEHICLES}} verbatim."
+  },
+  "metadata.docsRendering.structuredDescription": {
+    "context": "JSON-LD TechArticle long description. Keep Three.js; shader warmup is GPU compilation."
+  },
+  "metadata.docsPerformance.structuredDescription": {
+    "context": "JSON-LD TechArticle long description. Cold boot/frame evidence are perf terms."
+  },
+  "metadata.docsWorlds.structuredDescription": {
+    "context": "JSON-LD TechArticle long description. Preserve {{COT_BATTLEFIELDS}} verbatim."
+  },
+  "metadata.docsAi.structuredDescription": {
+    "context": "JSON-LD TechArticle long description. Bots are autonomous opponents."
+  },
+  "metadata.docsMultiplayer.structuredDescription": {
+    "context": "JSON-LD TechArticle long description. Authority means server-authoritative."
+  },
+  "metadata.docsAudio.structuredDescription": {
+    "context": "JSON-LD TechArticle long description. Spatial audio/voice routing are game-audio terms."
+  },
+  "metadata.docsInterface.structuredDescription": {
+    "context": "JSON-LD TechArticle long description. Keep HUD/killcam; reticle means aiming reticle."
+  },
+  "metadata.docsStudio.structuredDescription": {
+    "context": "JSON-LD TechArticle long description. Keep Scene Studio; articulation means movable parts."
+  }
+}

@@ -1,0 +1,1710 @@
+// src/world/maps/mapKits.ts — per-map set-dressing extras beyond the generic
+// props vocabulary (content_breadth r2).
+//
+// Two exports:
+//   MARKET_BUILDERS — plan-name builders (props.ts BUILDER_BY_NAME contract:
+//     make<X>(rng, buckets, wallBucket?) -> {w,d,h}) for the desert bazaar.
+//     Spread into URBAN_BUILDERS (maps/urbanKit.ts) so map plans can place
+//     'market' entries with ZERO props.ts changes.
+//   dressMapExtras(ctx) — explicit-position dressing that the road-side plan
+//     mechanism cannot reach: Frosthollow's frozen-lake basin gets shoreline
+//     reed stands, refrozen pressure-ridge slab chains, a frozen-in rowboat
+//     and a short timber jetty. Hooked from props.ts right before the bucket
+//     merge (see docs/SYSTEMS.md — one import + one call).
+//
+// All geometry is procedural THREE.BufferGeometry pushed into the existing
+// material buckets (wood/straw/stone), so it merges into the per-material
+// prop meshes and inherits map-toned textures + the grime overlay for free.
+// Most extras are soft dressing. The small rail coal stockpiles alone publish
+// their actual convex rock footprints through the supplied collision sinks.
+
+import * as THREE from 'three';
+import { box, jitterUV, pitchSkillionRoof, scaleUV, slabBox } from '../propGeometry.ts';
+import { planGroundedObbPose, planGroundedSegment } from '../propPlacement.ts';
+import type { GroundedSegmentEndpoint } from '../propPlacement.ts';
+import type { GeometryBuckets, StructureBuilder, StructureDimensions } from './exteriorDetailKit.ts';
+import { planRiverLanding, type RiverLandingAnchor } from './riverLandings.ts';
+import { createSnowDrift } from './snowDrift.ts';
+import { cloneCollisionRecord, convexHull2, setConvexShape, type CollisionRecord } from '../collision.ts';
+
+type Rng = () => number;
+type GeometryBucketName = keyof GeometryBuckets & string;
+
+interface DressingBuckets extends GeometryBuckets {
+  straw: THREE.BufferGeometry[];
+  baked?: THREE.BufferGeometry[];
+}
+
+interface DressingHeightField {
+  getHeightAt(x: number, z: number): number;
+  getWaterMaskAt(x: number, z: number): number;
+  getWaterDepthAt?(x: number, z: number): number;
+  getWaterSurfaceHeightAt?(x: number, z: number): number;
+  _roadDist(x: number, z: number): number;
+}
+
+interface LayoutDisc {
+  x: number;
+  z: number;
+  r: number;
+  level?: number;
+}
+
+interface DressingLayout {
+  lakes?: LayoutDisc[];
+  marshes?: LayoutDisc[];
+  roads: Array<Array<readonly [number, number]>>;
+  village: { x0: number; z0: number; z1: number };
+}
+
+interface GroundingReceipt {
+  kind: string;
+  x: number;
+  y: number;
+  z: number;
+  relief?: number;
+  baseClearance?: number;
+  supportMin?: number;
+  supportMax?: number;
+  start?: GroundedSegmentEndpoint;
+  end?: GroundedSegmentEndpoint;
+}
+
+interface DressingContext {
+  mapId?: string;
+  extraKits?: readonly string[] | null;
+  riverLandings?: readonly RiverLandingAnchor[];
+  L: DressingLayout;
+  heightField: DressingHeightField;
+  rng: Rng;
+  buckets: DressingBuckets;
+  groundingReceipts?: GroundingReceipt[] | null;
+  obstacles?: CollisionRecord[];
+  colliders?: CollisionRecord[];
+}
+
+type FocusedDressingContext = Pick<
+  DressingContext,
+  'L' | 'heightField' | 'rng' | 'buckets' | 'groundingReceipts' | 'obstacles' | 'colliders'
+>;
+
+const _groundUp = new THREE.Vector3(0, 1, 0);
+const _groundRight = new THREE.Vector3(1, 0, 0);
+const _groundNormal = new THREE.Vector3();
+const _groundQuat = new THREE.Quaternion();
+
+function applyGroundNormal(
+  geometry: THREE.BufferGeometry,
+  pose: { normalX: number; normalY: number; normalZ: number },
+): void {
+  _groundNormal.set(pose.normalX, pose.normalY, pose.normalZ);
+  _groundQuat.setFromUnitVectors(_groundUp, _groundNormal);
+  geometry.applyQuaternion(_groundQuat);
+}
+
+// =============================================================================
+// DESERT BAZAAR — plan builders ('market', 'marketRow')
+// =============================================================================
+
+// A single souk stall: timber posts under a sagging fabric awning, a low
+// counter, crate + pot clutter and a ground rug. Reads as commerce at the
+// crossroads without blocking a driving lane (h kept low, footprint small).
+function makeMarketStall(rng: Rng, buckets: GeometryBuckets): StructureDimensions {
+  const w = 6.6, d = 5.2;
+  const ph = 2.2 + rng() * 0.4;
+  // 4 corner posts (slightly splayed like re-driven timber)
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const post = box(0.16, ph, 0.16, 1.2);
+    post.rotateZ((rng() - 0.5) * 0.06);
+    post.translate(sx * (w / 2 - 0.7), ph / 2, sz * (d / 2 - 0.7));
+    buckets.wood.push(jitterUV(post, rng));
+  }
+  // awning: thin plaster-toned slab (sun-bleached canvas), pitched + skewed
+  const awn = box(w - 0.4, 0.09, d - 0.4, 0.35);
+  awn.rotateX((rng() - 0.5) * 0.10 - 0.06);
+  awn.rotateZ((rng() - 0.5) * 0.10);
+  awn.translate(0, ph + 0.05, 0);
+  buckets.plaster.push(jitterUV(awn, rng));
+  // ragged valance strip on the street edge
+  const val = box(w - 0.6, 0.5, 0.06, 0.5);
+  val.translate(0, ph - 0.28, d / 2 - 0.55);
+  buckets.plaster.push(jitterUV(val, rng));
+  // low counter + goods
+  const counter = box(2.6, 0.85, 0.9, 0.8);
+  counter.translate(-0.6, 0.43, d / 2 - 1.35);
+  buckets.wood.push(jitterUV(counter, rng));
+  for (let k = 0, n = 2 + ((rng() * 3) | 0); k < n; k++) {
+    const cs = 0.55 + rng() * 0.4;
+    const crate = box(cs, cs, cs, 1.0);
+    crate.rotateY(rng() * Math.PI * 0.5);
+    crate.translate(-w / 2 + 1.2 + rng() * 1.6, cs / 2, -d / 2 + 1.1 + rng() * (d - 2.2));
+    buckets.wood.push(jitterUV(crate, rng));
+  }
+  // clay pots (sandstone-toned) clustered by a post
+  for (let k = 0, n = 2 + ((rng() * 3) | 0); k < n; k++) {
+    const pr = 0.24 + rng() * 0.16, phg = 0.5 + rng() * 0.3;
+    const pot = new THREE.CylinderGeometry(pr * 0.7, pr, phg, 8, 1);
+    scaleUV(pot, 2, 1);
+    pot.translate(w / 2 - 1.0 - rng() * 1.2, phg / 2, -d / 2 + 0.9 + rng() * 1.4);
+    buckets.stone.push(jitterUV(pot, rng));
+  }
+  // ground rug (roof-tile tone reads as a dyed red carpet at range)
+  const rug = box(1.8 + rng() * 0.8, 0.05, 2.6 + rng() * 0.6, 0.4);
+  rug.rotateY((rng() - 0.5) * 0.4);
+  rug.translate(0.9, 0.035, 0.2);
+  buckets.roof.push(jitterUV(rug, rng));
+  return { w, d, h: ph + 0.4 };
+}
+
+// Two stalls back-to-back with a shared alley of clutter — fills a wider
+// road-side slot so the bazaar reads as a block, not a lone tent.
+function makeMarketRow(rng: Rng, buckets: GeometryBuckets): StructureDimensions {
+  const a = makeMarketStall(rng, buckets);
+  // second stall, offset along x, mirrored
+  const tmp: GeometryBuckets = {
+    wood: [], plaster: [], stone: [], roof: [], dark: [],
+  };
+  const b = makeMarketStall(rng, tmp);
+  const off = a.w / 2 + b.w / 2 - 1.2;
+  for (const [key, geometries] of Object.entries(tmp)) {
+    const target = buckets[key];
+    if (!geometries || !target) continue;
+    for (const g of geometries) {
+      g.rotateY(Math.PI + (rng() - 0.5) * 0.2);
+      g.translate(off, 0, (rng() - 0.5) * 1.2);
+      target.push(g);
+    }
+  }
+  // shared clutter: sacks (straw-less desert: use stone-toned bags -> plaster)
+  for (let k = 0; k < 3; k++) {
+    const s = 0.5 + rng() * 0.25;
+    const sack = new THREE.SphereGeometry(s, 7, 5);
+    scaleUV(sack, 1.5, 1);
+    sack.scale(1, 0.72, 1);
+    sack.translate(off / 2 + (rng() - 0.5) * 2.4, s * 0.5, (rng() - 0.5) * 2.4);
+    buckets.plaster.push(jitterUV(sack, rng));
+  }
+  return { w: a.w + b.w - 1.2, d: Math.max(a.d, b.d), h: a.h };
+}
+
+// =============================================================================
+// DESERT WALLED COMPOUNDS — plan builders ('compound', 'compoundSouk')
+// content_breadth r5: the critique's "adobe 'village' is ~6 small boxes
+// scattered on a bare sand pan with no compound walls/courtyards". Real
+// crossroads settlements cluster into WALLED family compounds: a mud-brick
+// perimeter with a gate, a 2-story main house in a back corner, an annex, a
+// well/souk anchor and lived-in courtyard clutter. Each compound registers as
+// ONE plan building, so it inherits ground-fit, the worn-earth apron decal,
+// minimap footprint and collision for free.
+// =============================================================================
+
+// mud-brick perimeter wall with a gate gap on the street face (+z), coping
+// course and gate posts. Returns nothing; pushes into buckets.
+function compoundWall(
+  rng: Rng,
+  buckets: GeometryBuckets,
+  w: number,
+  d: number,
+  wallH: number,
+): number {
+  const T = 0.42;
+  // coping rides the SAME plaster print as the wall — the derived plaster2
+  // shift renders as a saturated orange stripe under the desert sun (probed
+  // on the r5 establishing shot); the 0.14 m geometric lip alone reads as a
+  // finished mud-brick cap
+  const cop = (geometry: THREE.BufferGeometry) => buckets.plaster.push(jitterUV(geometry, rng));
+  const wal = (geometry: THREE.BufferGeometry) => buckets.plaster.push(jitterUV(geometry, rng));
+  // back + side walls (slight per-run lean/settle so runs read hand-built)
+  const runs = [
+    { x: 0, z: -d / 2, wx: w, wz: T },
+    { x: -w / 2, z: 0, wx: T, wz: d - T },
+    { x: w / 2, z: 0, wx: T, wz: d - T },
+  ];
+  for (const r of runs) {
+    const g = box(r.wx, wallH, r.wz, 0.8);
+    g.rotateY((rng() - 0.5) * 0.015);
+    g.translate(r.x, wallH / 2, r.z);
+    wal(g);
+    const c = box(r.wx + 0.14, 0.14, r.wz + 0.14, 0.8);
+    c.translate(r.x, wallH + 0.07, r.z);
+    cop(c);
+  }
+  // front wall split by a 3.6 m gate (offset from center like real lanes)
+  const gx = w * (0.10 + rng() * 0.10) * (rng() < 0.5 ? -1 : 1);
+  const segs = [
+    { x0: -w / 2, x1: gx - 1.8 },
+    { x0: gx + 1.8, x1: w / 2 },
+  ];
+  for (const s of segs) {
+    const ww = s.x1 - s.x0;
+    if (ww < 0.8) continue;
+    const g = box(ww, wallH, T, 0.8);
+    g.translate((s.x0 + s.x1) / 2, wallH / 2, d / 2);
+    wal(g);
+    const c = box(ww + 0.14, 0.14, T + 0.14, 0.8);
+    c.translate((s.x0 + s.x1) / 2, wallH + 0.07, d / 2);
+    cop(c);
+  }
+  // gate posts + timber lintel
+  for (const s of [-1, 1]) {
+    const p = box(0.55, wallH + 0.65, 0.55, 1.0);
+    p.translate(gx + s * 1.95, (wallH + 0.65) / 2, d / 2);
+    buckets.plaster.push(jitterUV(p, rng));
+  }
+  const lin = box(4.5, 0.16, 0.22, 1.2);
+  lin.translate(gx, wallH + 0.30, d / 2);
+  buckets.wood.push(jitterUV(lin, rng));
+  return gx;
+}
+
+// flat-roofed adobe block with parapet, viga beam ends, door + windows on the
+// courtyard face — the same massing language as props.ts makeAdobe.
+function adobeBlock(
+  rng: Rng,
+  buckets: GeometryBuckets,
+  bw: number,
+  bd: number,
+  bh: number,
+  x: number,
+  z: number,
+  doorAxis: 'x' | 'z' = 'z',
+  tone: GeometryBucketName = 'plaster',
+): void {
+  const wallTarget = buckets[tone] ?? buckets.plaster;
+  const base = box(bw + 0.25, 0.6, bd + 0.25, 0.8);
+  base.translate(x, -0.1, z);
+  buckets.stone.push(jitterUV(base, rng));
+  const blk = box(bw, bh, bd, 0.6);
+  blk.translate(x, bh / 2, z);
+  wallTarget.push(jitterUV(blk, rng));
+  // parapet
+  for (const [px, pz, pw, pdep] of [
+    [0, bd / 2 - 0.08, bw, 0.16], [0, -bd / 2 + 0.08, bw, 0.16],
+    [bw / 2 - 0.08, 0, 0.16, bd - 0.32], [-bw / 2 + 0.08, 0, 0.16, bd - 0.32],
+  ]) {
+    const p = box(pw, 0.42, pdep, 0.8);
+    p.translate(x + px, bh + 0.21, z + pz);
+    wallTarget.push(jitterUV(p, rng));
+  }
+  // roof deck: sun-bleached MUD roof (BASE plaster tone), not wood planking —
+  // from the raised establishing camera a big timber deck read as a dark
+  // brown slab, and the derived plaster3 shift (hue -0.035) rendered a big
+  // sunlit deck saturated RED (both probed r5); vigas keep the timber cue
+  const deck = box(bw - 0.2, 0.08, bd - 0.2, 0.35);
+  deck.translate(x, bh + 0.02, z);
+  buckets.plaster.push(jitterUV(deck, rng));
+  // viga beam ends on the door face
+  const dSign = 1;
+  const nBeam = Math.max(3, (bw / 0.95) | 0);
+  for (let k = 0; k < nBeam; k++) {
+    const bx = -bw / 2 + (k + 0.5) * (bw / nBeam);
+    const beam = box(0.13, 0.13, 0.5, 1.2);
+    if (doorAxis === 'z') beam.translate(x + bx, bh - 0.3, z + dSign * (bd / 2 + 0.2));
+    else beam.translate(x + dSign * (bw / 2 + 0.2), bh - 0.3, z + bx);
+    buckets.wood.push(beam);
+  }
+  // door + a pair of small windows (courtyard face)
+  const dr = box(1.0, 1.9, 0.10, 1.0);
+  const drD = box(0.8, 1.7, 0.06, 1.0);
+  if (doorAxis === 'z') {
+    dr.translate(x + bw * 0.14, 0.95, z + bd / 2 + 0.06);
+    drD.translate(x + bw * 0.14, 0.9, z + bd / 2 + 0.10);
+  } else {
+    dr.rotateY(Math.PI / 2); drD.rotateY(Math.PI / 2);
+    dr.translate(x + bw / 2 + 0.06, 0.95, z + bd * 0.14);
+    drD.translate(x + bw / 2 + 0.10, 0.9, z + bd * 0.14);
+  }
+  buckets.wood.push(dr); buckets.dark.push(drD);
+  for (const s of [-1, 1]) {
+    const wnd = box(0.55, 0.65, 0.06, 1.0);
+    if (doorAxis === 'z') wnd.translate(x - bw * 0.24 + (s > 0 ? bw * 0.5 : 0), bh - 0.95, z + bd / 2 + 0.05);
+    else { wnd.rotateY(Math.PI / 2); wnd.translate(x + bw / 2 + 0.05, bh - 0.95, z - bd * 0.24 + (s > 0 ? bd * 0.5 : 0)); }
+    buckets.dark.push(wnd);
+  }
+  if (rng() < 0.5) { // rooftop stair hut
+    const hut = box(bw * 0.32, 0.9, bd * 0.3, 0.8);
+    hut.translate(x - bw * 0.2, bh + 0.45, z - bd * 0.2);
+    wallTarget.push(jitterUV(hut, rng));
+  }
+}
+
+// courtyard well: stone ring, two posts, crossbar + bucket
+function courtyardWell(rng: Rng, buckets: GeometryBuckets, x: number, z: number): void {
+  const ring = new THREE.CylinderGeometry(0.85, 0.95, 0.85, 9, 1);
+  scaleUV(ring, 3, 1);
+  ring.translate(x, 0.42, z);
+  buckets.stone.push(jitterUV(ring, rng));
+  for (const s of [-1, 1]) {
+    const p = box(0.14, 1.9, 0.14, 1.2);
+    p.translate(x + s * 0.75, 0.95, z);
+    buckets.wood.push(p);
+  }
+  const bar = box(1.8, 0.10, 0.10, 1.2);
+  bar.translate(x, 1.8, z);
+  buckets.wood.push(bar);
+  const bk = box(0.3, 0.3, 0.3, 1.2);
+  bk.translate(x + 0.2, 1.35, z);
+  buckets.dark.push(bk);
+  // The bucket hangs from an authored rope instead of levitating beneath the
+  // crossbar. This also keeps the complete well in one support chain.
+  const rope = box(0.035, 0.45, 0.035, 2.0);
+  rope.translate(x + 0.2, 1.575, z);
+  buckets.dark.push(rope);
+}
+
+// scattered courtyard living clutter: crates, clay pots, sacks, a rug
+function courtyardClutter(
+  rng: Rng,
+  buckets: GeometryBuckets,
+  w: number,
+  d: number,
+  n: number,
+): void {
+  for (let k = 0; k < n; k++) {
+    const cx = (rng() - 0.5) * (w - 5), cz = (rng() - 0.5) * (d - 5);
+    const roll = rng();
+    if (roll < 0.34) {
+      const cs = 0.5 + rng() * 0.4;
+      const crate = box(cs, cs, cs, 1.0);
+      crate.rotateY(rng() * Math.PI * 0.5);
+      crate.translate(cx, cs / 2, cz);
+      buckets.wood.push(jitterUV(crate, rng));
+    } else if (roll < 0.62) {
+      const pr = 0.22 + rng() * 0.16, ph = 0.5 + rng() * 0.3;
+      const pot = new THREE.CylinderGeometry(pr * 0.7, pr, ph, 8, 1);
+      scaleUV(pot, 2, 1);
+      pot.translate(cx, ph / 2, cz);
+      buckets.stone.push(jitterUV(pot, rng));
+    } else if (roll < 0.82) {
+      const s = 0.42 + rng() * 0.22;
+      const sack = new THREE.SphereGeometry(s, 7, 5);
+      scaleUV(sack, 1.5, 1);
+      sack.scale(1, 0.7, 1);
+      sack.translate(cx, s * 0.48, cz);
+      buckets.plaster.push(jitterUV(sack, rng));
+    } else {
+      const rug = box(1.5 + rng() * 0.8, 0.05, 2.2 + rng() * 0.6, 0.4);
+      rug.rotateY((rng() - 0.5) * 0.6);
+      rug.translate(cx, 0.035, cz);
+      buckets.roof.push(jitterUV(rug, rng));
+    }
+  }
+}
+
+/**
+ * Walled family compound: perimeter wall + gate, 2-story main house, 1-story
+ * annex, well anchor, courtyard clutter. w runs ALONG the street so the
+ * footprint stays shallow enough for the road-side placement lattice.
+ */
+function makeCompound(rng: Rng, buckets: GeometryBuckets): StructureDimensions {
+  const w = 21 + rng() * 3, d = 13.5 + rng() * 1.5;
+  const wallH = 2.05 + rng() * 0.3;
+  compoundWall(rng, buckets, w, d, wallH);
+  // main house in a back corner (2-story), door onto the courtyard
+  const hw = 7.6 + rng() * 1.2, hd = 5.6 + rng() * 0.8, hh = 5.1 + rng() * 0.5;
+  const hs = rng() < 0.5 ? -1 : 1;
+  const hx = hs * (w / 2 - hw / 2 - 0.55), hz = -d / 2 + hd / 2 + 0.55;
+  adobeBlock(rng, buckets, hw, hd, hh, hx, hz, 'z', 'plaster');
+  // single-story annex against the opposite side wall (base plaster: the
+  // derived plaster3 family carries a red hue shift that reads brick, not
+  // mud, under the desert sun — probed r5)
+  const aw = 4.6 + rng() * 1.0, ad = 3.8 + rng() * 0.8, ah = 2.75 + rng() * 0.3;
+  const ax = -hs * (w / 2 - aw / 2 - 0.5), az = -d / 2 + ad / 2 + 0.6;
+  adobeBlock(rng, buckets, aw, ad, ah, ax, az, 'z', 'plaster');
+  // lean-to awning off the annex (shade for goods/animals)
+  const awn = pitchSkillionRoof(box(aw * 0.9, 0.08, 2.4, 0.35), 'z', 1, 0.12);
+  awn.translate(ax, ah - 0.35, az + ad / 2 + 1.15);
+  buckets.plaster.push(jitterUV(awn, rng));
+  for (const s of [-1, 1]) {
+    const p = box(0.13, ah - 0.75, 0.13, 1.2);
+    p.translate(ax + s * aw * 0.4, (ah - 0.75) / 2, az + ad / 2 + 2.1);
+    buckets.wood.push(p);
+  }
+  // well just off courtyard center + lived-in clutter
+  courtyardWell(rng, buckets, -hs * w * 0.08, d * 0.12);
+  courtyardClutter(rng, buckets, w, d, 6 + ((rng() * 3) | 0));
+  return { w: w + 0.5, d: d + 0.5, h: hh + 0.5 };
+}
+
+/**
+ * Souk compound: walled yard with a shop row along the back wall, an awning
+ * stall, corner watch-post and dense goods clutter — the market anchor.
+ */
+function makeCompoundSouk(rng: Rng, buckets: GeometryBuckets): StructureDimensions {
+  const w = 19 + rng() * 2.5, d = 13 + rng() * 1.5;
+  const wallH = 1.95 + rng() * 0.25;
+  compoundWall(rng, buckets, w, d, wallH);
+  // shop row: long single-story block against the back wall, wide dark bays.
+  // BASE plaster only — both derived families shift hue on desert (plaster2
+  // orange, plaster3 brick-red) and a 12 m block wears the cast loudly
+  const sw = w * 0.62, sd = 4.0, sh = 3.05 + rng() * 0.25;
+  const sx = -w * 0.12, sz = -d / 2 + sd / 2 + 0.55;
+  adobeBlock(rng, buckets, sw, sd, sh, sx, sz, 'z', 'plaster');
+  for (let k = 0; k < 3; k++) { // open market bays punched into the row
+    const bx = sx - sw / 2 + (k + 0.5) * (sw / 3);
+    const bay = box(1.7, 1.9, 0.08, 1.0);
+    bay.translate(bx, 1.0, sz + sd / 2 + 0.07);
+    buckets.dark.push(bay);
+  }
+  // corner watch-post (small square tower for the skyline)
+  const tw = 2.6, th = 4.6 + rng() * 0.5;
+  const tx = w / 2 - tw / 2 - 0.5, tz = -d / 2 + tw / 2 + 0.5;
+  const tower = box(tw, th, tw, 0.6);
+  tower.translate(tx, th / 2, tz);
+  buckets.plaster.push(jitterUV(tower, rng));
+  for (const [mx, mz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const merlon = box(0.5, 0.5, 0.5, 0.8);
+    merlon.translate(tx + mx * (tw / 2 - 0.3), th + 0.25, tz + mz * (tw / 2 - 0.3));
+    buckets.plaster.push(jitterUV(merlon, rng));
+  }
+  const slit = box(0.30, 0.75, 0.06, 1.0);
+  slit.translate(tx, th - 1.1, tz + tw / 2 + 0.05);
+  buckets.dark.push(slit);
+  // awning stall in the yard (reuses the souk stall vocabulary)
+  {
+    const ph = 2.1 + rng() * 0.3, awW = 5.4, awD = 4.2;
+    const ox = -w * 0.18, oz = d * 0.16;
+    for (const [sxp, szp] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const post = box(0.15, ph, 0.15, 1.2);
+      post.rotateZ((rng() - 0.5) * 0.05);
+      post.translate(ox + sxp * (awW / 2 - 0.5), ph / 2, oz + szp * (awD / 2 - 0.5));
+      buckets.wood.push(jitterUV(post, rng));
+    }
+    const awn = box(awW, 0.08, awD, 0.35);
+    awn.rotateX((rng() - 0.5) * 0.09 - 0.05);
+    awn.translate(ox, ph + 0.04, oz);
+    buckets.plaster.push(jitterUV(awn, rng));
+    const counter = box(2.4, 0.8, 0.85, 0.8);
+    counter.translate(ox - 0.4, 0.4, oz + awD / 2 - 1.1);
+    buckets.wood.push(jitterUV(counter, rng));
+  }
+  courtyardClutter(rng, buckets, w, d, 8 + ((rng() * 4) | 0));
+  return { w: w + 0.5, d: d + 0.5, h: th + 0.3 };
+}
+
+/** Plan-name builders to spread into URBAN_BUILDERS (props.ts contract). */
+export const MARKET_BUILDERS: Record<string, StructureBuilder> = {
+  market: makeMarketStall, marketRow: makeMarketRow,
+  compound: makeCompound, compoundSouk: makeCompoundSouk,
+};
+
+// =============================================================================
+// FROSTHOLLOW LAKE BASIN — explicit-position dressing
+// =============================================================================
+
+// River reeds reuse the existing tapered stem topology, but retain every
+// original clump/root XZ draw. Bed seating is per stem, not the clump center.
+function reedClump(
+  buckets: DressingBuckets,
+  rng: Rng,
+  heightField: DressingHeightField,
+  x: number,
+  z: number,
+): void {
+  winterReedClump(buckets, rng, heightField, x, z);
+}
+
+function winterSurface(
+  name: string, positions: Float32Array, uvs: Float32Array, indices: Uint16Array,
+): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  geometry.name = name;
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+// Two narrow rings and a bent, tapered tip:14 vertices/12 triangles, versus
+// the old24-vertex square post. The open bottom is buried, never visible.
+function winterReedStem(
+  height: number, width: number, bendX: number, bendZ: number, twist: number,
+): THREE.BufferGeometry {
+  const positions = new Float32Array(14 * 3), uvs = new Float32Array(14 * 2);
+  const indices = new Uint16Array(36);
+  for (let ring = 0; ring < 2; ring++) {
+    const t = ring * 0.64, radius = width * (ring ? 0.32 : 0.5);
+    for (let side = 0; side <= 4; side++) {
+      const i = ring * 5 + side, angle = twist + side * Math.PI / 2;
+      positions.set([Math.cos(angle) * radius + bendX * height * t * t,
+        height * t, Math.sin(angle) * radius + bendZ * height * t * t], i * 3);
+      uvs.set([side * width, height * t * 2], i * 2);
+    }
+  }
+  for (let side = 0; side < 4; side++) {
+    positions.set([bendX * height, height, bendZ * height], (10 + side) * 3);
+    uvs.set([(side + 0.5) * width, height * 2], (10 + side) * 2);
+    indices.set([side, side + 5, side + 1, side + 1, side + 5, side + 6,
+      side + 5, side + 10, side + 6], side * 9);
+  }
+  const geometry = winterSurface('winter-reed', positions, uvs, indices);
+  const normal = geometry.getAttribute('normal');
+  // The UV seam duplicates the same ring vertex; share its lighting normal
+  // explicitly instead of leaving the two adjacent faces ninety degrees apart.
+  for (const [a, b] of [[0, 4], [5, 9]]) {
+    const nx = normal.getX(a) + normal.getX(b);
+    const ny = normal.getY(a) + normal.getY(b);
+    const nz = normal.getZ(a) + normal.getZ(b);
+    const length = Math.hypot(nx, ny, nz) || 1;
+    normal.setXYZ(a, nx / length, ny / length, nz / length);
+    normal.setXYZ(b, nx / length, ny / length, nz / length);
+  }
+  return geometry;
+}
+
+function winterReedClump(
+  buckets: DressingBuckets, rng: Rng, heightField: DressingHeightField, x: number, z: number,
+): void {
+  const n = 8 + ((rng() * 7) | 0);
+  let headX = 0, headY = 0, headZ = 0;
+  for (let k = 0; k < n; k++) {
+    const tall = k < 3;
+    const h = tall ? 1.15 + rng() * 0.6 : 0.6 + rng() * 0.6;
+    const w = (tall ? 0.10 + rng() * 0.05 : 0.06 + rng() * 0.04) * 0.30;
+    const bendZ = (rng() - 0.5) * 0.48, bendX = (rng() - 0.5) * 0.48;
+    const st = winterReedStem(h, w, bendX, bendZ, rng() * Math.PI);
+    const px = x + (rng() - 0.5) * 2.2, pz = z + (rng() - 0.5) * 2.2;
+    st.translate(px, heightField.getHeightAt(px, pz) - 0.06, pz);
+    if (k === 0) {
+      const p = st.getAttribute('position');
+      headX = p.getX(10); headY = p.getY(10); headZ = p.getZ(10);
+    }
+    buckets.straw.push(st);
+  }
+  // Consume the original three head draws, but attach its base to the first
+  // actual stem tip instead of leaving a random crossbar in empty air.
+  if (rng() < 0.6) {
+    const lean = 1.2 + rng() * 0.3, yaw = rng() * Math.PI * 2, h = 0.25 + rng() * 0.20;
+    const head = winterReedStem(h, 0.025, 0.18, 0, 0);
+    head.name = 'winter-reed-head';
+    head.rotateZ(lean); head.rotateY(yaw); head.translate(headX, headY, headZ);
+    buckets.straw.push(head);
+  }
+}
+
+function winterWedgeBaseHeight(
+  heightField: DressingHeightField, x: number, z: number,
+  width: number, depth: number, ca: number, sa: number,
+): number {
+  // A common buried plane cannot bridge a curved bank like independently
+  // seated corners. Sample perimeter AND underside at <=0.45m spacing for
+  // the authored footprints; the35mm embed covers between-sample curvature.
+  let low = Infinity;
+  for (let row = 0; row <= 4; row++) for (let column = 0; column <= 4; column++) {
+    const lx = (column / 4 - 0.5) * width, lz = (row / 4 - 0.5) * depth;
+    low = Math.min(low, heightField.getHeightAt(x + ca * lx + sa * lz, z - sa * lx + ca * lz));
+  }
+  return low - 0.035;
+}
+
+function setWinterPlateUV(
+  uv: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, index: number,
+  x: number, rise: number, z: number, scale: number,
+): void {
+  // Box faces are +X,-X,+Y,-Y,+Z,-Z. Use the actual deformed face axes;
+  // jitterUV still runs exactly once at the original production call site.
+  const face = Math.floor(index / 4);
+  const u = face < 2 ? (face ? -z : z) : (face === 5 ? -x : x);
+  const v = face === 2 ? -z : face === 3 ? z : rise;
+  uv.setXY(index, u * scale, v * scale);
+}
+
+// A broad, tilted fracture plate with unequal broken edges, not a narrow
+// masonry tent. Keep the same24 vertices/12 triangles and exact buried base;
+// existing roll/pitch draws vary the cap without consuming more randomness.
+function winterIceWedge(
+  heightField: DressingHeightField, x: number, z: number, width: number,
+  height: number, depth: number, yaw: number, roll: number, pitch: number, uvScale: number,
+): THREE.BoxGeometry {
+  const h = Math.min(height, width * 0.16), d = Math.max(depth, width * 0.65);
+  const geometry = slabBox(width, h, d, uvScale);
+  geometry.name = 'winter-ice-wedge';
+  const p = geometry.getAttribute('position'), uv = geometry.getAttribute('uv');
+  const ca = Math.cos(yaw), sa = Math.sin(yaw);
+  const bottomY = winterWedgeBaseHeight(heightField, x, z, width, d, ca, sa);
+  const tiltX = roll < 0 ? -0.30 : 0.30;
+  const capHeights: number[] = [];
+  for (let i = 0; i < p.count; i++) {
+    const top = p.getY(i) > 0, sx = Math.sign(p.getX(i)), sz = Math.sign(p.getZ(i));
+    let lx = p.getX(i), lz = p.getZ(i);
+    if (top) {
+      lx = lx * (0.80 + sz * (0.06 + roll * 0.08)) + pitch * width * 0.045;
+      lz = lz * (0.81 + sx * (0.045 + pitch * 0.08)) + roll * d * 0.055;
+    }
+    const wx = x + ca * lx + sa * lz, wz = z - sa * lx + ca * lz;
+    const corner = (sx > 0 ? 1 : 0) + (sz > 0 ? 2 : 0);
+    if (top && capHeights[corner] === undefined) {
+      const tilt = sx * tiltX + sz * (0.10 + pitch * 0.12);
+      capHeights[corner] = heightField.getHeightAt(wx, wz) + 0.025 + h * (0.48 + tilt);
+    }
+    p.setXYZ(i, wx, top ? capHeights[corner] : bottomY, wz);
+    setWinterPlateUV(uv, i, lx, p.getY(i) - bottomY, lz, uvScale);
+  }
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+interface WinterRidgeRow {
+  x: number; z: number; angle: number; height: number; halfWidth: number;
+}
+
+function winterBermHump(t: number, center: number, radius: number): number {
+  const q = Math.max(0, 1 - Math.abs(t - center) / radius);
+  return q * q * (3 - 2 * q);
+}
+
+function seatWinterBermEdge(
+  positions: Float32Array, heightField: DressingHeightField, a: number, b: number,
+): void {
+  a *= 3; b *= 3;
+  let lower = 0;
+  // Construction only: seat the interpolated edge, not just its two vertices.
+  // Lowering both endpoints cannot reopen any already seated adjoining edge.
+  for (let step = 1; step < 8; step++) {
+    const t = step / 8;
+    const x = positions[a] + (positions[b] - positions[a]) * t;
+    const z = positions[a + 2] + (positions[b + 2] - positions[a + 2]) * t;
+    const y = positions[a + 1] + (positions[b + 1] - positions[a + 1]) * t;
+    lower = Math.max(lower, y - heightField.getHeightAt(x, z) + 0.035);
+  }
+  positions[a + 1] -= lower;
+  positions[b + 1] -= lower;
+}
+
+function seatWinterBermPerimeter(
+  positions: Float32Array, heightField: DressingHeightField, rows: number,
+): void {
+  for (let row = 0; row < rows - 1; row++) {
+    seatWinterBermEdge(positions, heightField, row * 5, (row + 1) * 5);
+    seatWinterBermEdge(positions, heightField, row * 5 + 4, (row + 1) * 5 + 4);
+  }
+  for (let column = 0; column < 4; column++) {
+    seatWinterBermEdge(positions, heightField, column, column + 1);
+    const last = (rows - 1) * 5 + column;
+    seatWinterBermEdge(positions, heightField, last, last + 1);
+  }
+}
+
+function winterPressureBerm(
+  heightField: DressingHeightField, rows: WinterRidgeRow[],
+): THREE.BufferGeometry {
+  // Keep the same five-vertex sections, but compose two unequal snow humps
+  // instead of a uniformly wide, regularly segmented masonry-looking strip.
+  const positions = new Float32Array(rows.length * 15), uvs = new Float32Array(rows.length * 10);
+  const indices = new Uint16Array((rows.length - 1) * 24);
+  const wave = Math.sin(rows[0].x * 0.17 + rows[0].z * 0.11), side = wave >= 0 ? 1 : -1;
+  const profile = side > 0 ? [0, 0.44, 1, 0.68, 0] : [0, 0.68, 1, 0.44, 0];
+  let peak = 0;
+  for (const row of rows) peak = Math.max(peak, row.height);
+  for (let row = 0; row < rows.length; row++) {
+    const r = rows[row], ca = Math.cos(r.angle), sa = Math.sin(r.angle);
+    const t = row / (rows.length - 1), taper = 4 * t * (1 - t);
+    const skew = side * (0.14 + 0.06 * (1 - taper));
+    const acrossProfile = [-1, -0.52 + skew * 0.5, skew, 0.55 + skew * 0.5, 1];
+    const rise = peak * (0.18 + 0.78 * winterBermHump(t, 0.28 + 0.04 * wave, 0.23)
+      + 0.57 * winterBermHump(t, 0.75 + 0.02 * wave, 0.19));
+    for (let column = 0; column < 5; column++) {
+      const across = acrossProfile[column] * r.halfWidth * (0.24 + 0.76 * taper);
+      const x = r.x - sa * across, z = r.z + ca * across;
+      const edge = row === 0 || row === rows.length - 1 || column === 0 || column === 4;
+      const y = heightField.getHeightAt(x, z) + (edge ? -0.035 : rise * profile[column]);
+      const i = row * 5 + column;
+      positions.set([x, y, z], i * 3);
+      uvs.set([x * 0.3, z * 0.3], i * 2);
+      if (row < rows.length - 1 && column < 4) {
+        indices.set([i, i + 1, i + 5, i + 1, i + 6, i + 5], (row * 4 + column) * 6);
+      }
+    }
+  }
+  seatWinterBermPerimeter(positions, heightField, rows.length);
+  return winterSurface('winter-pressure-berm', positions, uvs, indices);
+}
+
+// Same seeded ridge sites and occasional ice plates; only the construction
+// topology changes. All old UV-jitter draws are consumed to preserve later
+// drifts/boats and subsequent lakes, but the continuous surface uses metric UVs.
+function pressureRidge(
+  buckets: DressingBuckets,
+  rng: Rng,
+  cx: number,
+  cz: number,
+  heightField: DressingHeightField,
+  ang: number,
+  len: number,
+): void {
+  const n = Math.max(6, Math.round(len / 1.7));
+  const bend = (rng() - 0.5) * 0.9; // gentle S-curve along the run
+  const rows: WinterRidgeRow[] = [];
+  for (let k = 0; k < n; k++) {
+    const t = k / (n - 1) - 0.5;
+    const aa = ang + bend * t;
+    const px = cx + Math.cos(aa) * t * len + (rng() - 0.5) * 0.5;
+    const pz = cz + Math.sin(aa) * t * len + (rng() - 0.5) * 0.5;
+    const taper = Math.max(0.25, 1 - Math.abs(t) * 1.6); // sink toward the ends
+    const bh = (0.17 + rng() * 0.13) * taper;
+    const segmentLength = 1.9 + rng() * 0.9, width = 1.15 + rng() * 0.65;
+    const angle = aa - (rng() - 0.5) * 0.22, pitch = (rng() - 0.5) * 0.10;
+    rows.push({ x: px, z: pz, angle, height: bh * (1 + pitch),
+      halfWidth: width * (0.46 + segmentLength * 0.02) });
+    rng(); rng(); rng(); rng(); // original segment jitterUV contract
+    if (rng() < 0.22) { // occasional small refrozen plate on the crest
+      const pw = 0.7 + rng() * 0.6, phh = 0.18 + rng() * 0.22;
+      const depth = 0.10 + rng() * 0.08;
+      const roll = (rng() - 0.5) * 0.5, pitch = (rng() - 0.5) * 0.4;
+      const plate = winterIceWedge(heightField, px, pz, pw, bh + phh * 0.5,
+        depth, -aa + (rng() - 0.5) * 0.6, roll, pitch, 0.8);
+      buckets.plaster.push(jitterUV(plate, rng));
+    }
+  }
+  // Both the snow-filled seam and opaque snow-dusted plates reuse the existing
+  // plaster/drift surface; mortar normals must not print masonry onto ice.
+  buckets.plaster.push(winterPressureBerm(heightField, rows));
+}
+
+// Weathered rowboat frozen into the sheet near the shore — planked sides,
+// transom and two bench thwarts, listing a few degrees.
+function frozenRowboat(
+  buckets: DressingBuckets,
+  rng: Rng,
+  heightField: DressingHeightField,
+  x: number,
+  z: number,
+  yaw: number,
+  groundingReceipts?: GroundingReceipt[] | null,
+): void {
+  const parts: THREE.BufferGeometry[] = [];
+  const L = 3.4, W = 1.25, H = 0.52;
+  const pose = planGroundedObbPose(heightField, x, z, L * 0.5, W * 0.5, yaw, 0.10);
+  for (const s of [-1, 1]) { // side planks (two lapped strakes each)
+    for (let r = 0; r < 2; r++) {
+      const pl = box(L - r * 0.5, 0.20, 0.06, 1.2);
+      pl.rotateZ((rng() - 0.5) * 0.03);
+      pl.translate(0, 0.14 + r * 0.18, s * (W / 2 - r * 0.06));
+      parts.push(pl);
+    }
+  }
+  const bow = box(0.07, H * 0.8, W * 0.8, 1.2);
+  bow.rotateY(Math.PI / 4);
+  bow.translate(L / 2 - 0.12, H * 0.42, 0);
+  parts.push(bow);
+  const transom = box(0.07, H * 0.75, W * 0.9, 1.2);
+  transom.translate(-L / 2 + 0.1, H * 0.4, 0);
+  parts.push(transom);
+  for (const tx of [-0.7, 0.55]) { // thwarts
+    const th = box(0.26, 0.05, W * 0.94, 1.2);
+    th.translate(tx, H * 0.62, 0);
+    parts.push(th);
+  }
+  for (const g of parts) {
+    g.rotateZ(0.06 + rng() * 0.05); // frozen-in list
+    g.rotateY(yaw);
+    applyGroundNormal(g, pose);
+    g.translate(x, pose.y, z);    // hull bitten into the ice
+    buckets.wood.push(jitterUV(g, rng));
+  }
+  groundingReceipts?.push({
+    kind: 'frozen-rowboat', x, y: pose.y, z, relief: pose.spread,
+    baseClearance: pose.maxFloat, supportMin: pose.min, supportMax: pose.max,
+  });
+}
+
+// Short timber jetty walking off the shore onto the ice: paired piles with a
+// plank deck, ending in a slight sag.
+function jetty(
+  buckets: DressingBuckets,
+  rng: Rng,
+  x0: number,
+  z0: number,
+  ang: number,
+  y: number,
+  len = 7.5,
+  supportField?: DressingHeightField,
+  groundingReceipts?: GroundingReceipt[] | null,
+): void {
+  const n = Math.round(len / 1.9);
+  const dx = Math.cos(ang), dz = Math.sin(ang);
+  const px = -dz, pz = dx; // deck width axis
+  for (let k = 0; k <= n; k++) {
+    const t = k * 1.9;
+    for (const s of [-1, 1]) {
+      const x = x0 + dx * t + px * 0.65 * s;
+      const z = z0 + dz * t + pz * 0.65 * s;
+      const support = supportField?.getHeightAt(x, z);
+      const base = support === undefined ? y - 0.05 : support - 0.10;
+      const ph = support === undefined ? 0.9 - k * 0.04 : y + 0.865 - base;
+      const pile = box(0.16, ph, 0.16, 1.2);
+      pile.rotateY(rng() * 0.3);
+      pile.translate(x, base + ph / 2, z);
+      buckets.wood.push(jitterUV(pile, rng));
+      if (support !== undefined) groundingReceipts?.push({
+        kind: 'jetty-pile', x, y: base, z, baseClearance: -0.10,
+        supportMin: support, supportMax: support,
+      });
+    }
+  }
+  for (let k = 0; k < n; k++) { // deck segments with a soft sag
+    const t = (k + 0.5) * 1.9;
+    const deck = box(1.95, 0.09, 1.5, 1.2);
+    deck.rotateY(-Math.atan2(dz, dx));
+    deck.translate(x0 + dx * t, y + 0.82 - (supportField ? 0 : k * 0.05), z0 + dz * t);
+    buckets.wood.push(jitterUV(deck, rng));
+  }
+}
+
+function isDressingPointClear(
+  heightField: DressingHeightField,
+  x: number,
+  z: number,
+  extent: number,
+  roadClearance: number,
+): boolean {
+  return Math.max(Math.abs(x), Math.abs(z)) <= extent
+    && heightField._roadDist(x, z) >= roadClearance;
+}
+
+function addWinterShoreReeds(
+  lake: LayoutDisc,
+  big: boolean,
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  const clumps = Math.round(lake.r * (big ? 0.52 : 0.3));
+  for (let i = 0; i < clumps; i++) {
+    const angle = rng() * Math.PI * 2;
+    const radius = lake.r * (0.82 + rng() * 0.22);
+    const x = lake.x + Math.cos(angle) * radius;
+    const z = lake.z + Math.sin(angle) * radius;
+    if (!isDressingPointClear(heightField, x, z, 480, 6)) continue;
+    winterReedClump(buckets, rng, heightField, x, z);
+  }
+}
+
+function addWinterShoreIce(
+  lake: LayoutDisc,
+  big: boolean,
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  const clusters = Math.round(lake.r * (big ? 0.62 : 0.42));
+  for (let i = 0; i < clusters; i++) {
+    const angle = rng() * Math.PI * 2;
+    const radius = lake.r * (0.90 + rng() * 0.12);
+    const x = lake.x + Math.cos(angle) * radius;
+    const z = lake.z + Math.sin(angle) * radius;
+    if (!isDressingPointClear(heightField, x, z, 480, 6)) continue;
+    if (rng() < 0.45) continue;
+    const slabCount = 2 + ((rng() * 4) | 0);
+    for (let slabIndex = 0; slabIndex < slabCount; slabIndex++) {
+      const width = 0.7 + rng() * 1.1;
+      const height = 0.22 + rng() * 0.34;
+      const depth = 0.14 + rng() * 0.10;
+      const roll = (rng() - 0.5) * 0.9, pitch = (rng() - 0.5) * 0.8;
+      const yaw = -angle + (rng() - 0.5) * 0.9;
+      const px = x + (rng() - 0.5) * 2.6, pz = z + (rng() - 0.5) * 2.6;
+      const slab = winterIceWedge(heightField, px, pz, width, height, depth, yaw, roll, pitch, 0.9);
+      buckets.plaster.push(jitterUV(slab, rng));
+    }
+  }
+}
+
+function addWinterPressureRidges(
+  lake: LayoutDisc,
+  big: boolean,
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  const ridges = big ? 7 : 2;
+  for (let i = 0; i < ridges; i++) {
+    const angle = rng() * Math.PI * 2;
+    const radius = lake.r * (0.16 + rng() * 0.5);
+    const x = lake.x + Math.cos(angle) * radius;
+    const z = lake.z + Math.sin(angle) * radius;
+    pressureRidge(buckets, rng, x, z, heightField,
+      rng() * Math.PI, 10 + rng() * 10);
+  }
+}
+
+const WINTER_WIND_YAW = -0.6;
+
+function addSnowLens(
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+  x: number,
+  z: number,
+  radius: number,
+  height: number,
+  streak: boolean,
+): void {
+  const elongation = streak ? 3.0 + rng() * 1.8 : 1.4 + rng() * 0.5;
+  const across = radius * (0.55 + rng() * 0.3);
+  const yaw = WINTER_WIND_YAW + (rng() - 0.5) * 0.24;
+  const geometry = createSnowDrift(heightField, x, z,
+    radius * elongation * 0.5, across * 0.72, height, yaw);
+  buckets.plaster.push(jitterUV(geometry, rng));
+}
+
+function addWinterInteriorDrifts(
+  lake: LayoutDisc,
+  big: boolean,
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  const driftCount = big ? 12 : 5;
+  for (let i = 0; i < driftCount; i++) {
+    const angle = rng() * Math.PI * 2;
+    const radius = lake.r * (0.15 + rng() * 0.6);
+    const x = lake.x + Math.cos(angle) * radius;
+    const z = lake.z + Math.sin(angle) * radius;
+    addSnowLens(heightField, rng, buckets, x, z,
+      3.0 + rng() * 4.0, 0.13 + rng() * 0.12, true);
+    const tailCount = 1 + ((rng() * 3) | 0);
+    for (let tail = 1; tail <= tailCount; tail++) {
+      addSnowLens(heightField, rng, buckets,
+        x + Math.cos(WINTER_WIND_YAW) * (5 + tail * (4 + rng() * 3)),
+        z - Math.sin(WINTER_WIND_YAW) * (5 + tail * (4 + rng() * 3)),
+        1.2 + rng() * 1.8, 0.08 + rng() * 0.07, true);
+    }
+  }
+}
+
+function addWinterRimDrifts(
+  lake: LayoutDisc,
+  big: boolean,
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  const rimCount = Math.round(lake.r * (big ? 0.5 : 0.35));
+  for (let i = 0; i < rimCount; i++) {
+    const angle = rng() * Math.PI * 2;
+    if (rng() < 0.30) continue;
+    const radius = lake.r * (0.90 + rng() * 0.16);
+    const x = lake.x + Math.cos(angle) * radius;
+    const z = lake.z + Math.sin(angle) * radius;
+    if (!isDressingPointClear(heightField, x, z, 480, 6)) continue;
+    addSnowLens(heightField, rng, buckets, x, z,
+      2.6 + rng() * 3.4, 0.13 + rng() * 0.14, false);
+  }
+}
+
+function addWinterLakeLandmark(
+  lake: LayoutDisc,
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+  groundingReceipts?: GroundingReceipt[] | null,
+): void {
+  const boatAngle = Math.PI * 1.32 + rng() * 0.2;
+  const boatX = lake.x + Math.cos(boatAngle) * lake.r * 0.86;
+  const boatZ = lake.z + Math.sin(boatAngle) * lake.r * 0.86;
+  frozenRowboat(buckets, rng, heightField, boatX, boatZ,
+    boatAngle + Math.PI / 2, groundingReceipts);
+  const jettyAngle = boatAngle + 0.45;
+  const jettyX = lake.x + Math.cos(jettyAngle) * lake.r * 1.02;
+  const jettyZ = lake.z + Math.sin(jettyAngle) * lake.r * 1.02;
+  jetty(buckets, rng, jettyX, jettyZ, jettyAngle + Math.PI,
+    heightField.getHeightAt(jettyX, jettyZ));
+}
+
+function dressWinterLakes({
+  L, heightField, rng, buckets, groundingReceipts,
+}: FocusedDressingContext): void {
+  for (const lake of L.lakes || []) {
+    const big = lake.r >= 80;
+    addWinterShoreReeds(lake, big, heightField, rng, buckets);
+    addWinterShoreIce(lake, big, heightField, rng, buckets);
+    addWinterPressureRidges(lake, big, heightField, rng, buckets);
+    addWinterInteriorDrifts(lake, big, heightField, rng, buckets);
+    addWinterRimDrifts(lake, big, heightField, rng, buckets);
+    if (big) addWinterLakeLandmark(lake, heightField, rng, buckets, groundingReceipts);
+  }
+}
+
+function legacyDressingKits(mapId?: string): readonly string[] {
+  if (mapId === 'coastal') return ['coastal'];
+  if (mapId === 'autumn') return ['river'];
+  if (mapId === 'railyard') return ['rail'];
+  if (mapId === 'winter') return ['winterLake'];
+  return [];
+}
+
+/** Add map-specific geometry before the shared material buckets are merged. */
+export function dressMapExtras({
+  mapId, extraKits = null, riverLandings, L, heightField, rng, buckets, groundingReceipts = null,
+  obstacles, colliders,
+}: DressingContext): void {
+  const kits = extraKits || legacyDressingKits(mapId);
+  const focused = { L, heightField, rng, buckets, groundingReceipts, obstacles, colliders };
+  if (kits.includes('coastal')) dressCoastalShore(focused);
+  if (kits.includes('river')) {
+    if (riverLandings?.length) dressLakeRiverLandings(focused, riverLandings);
+    else dressAutumnRiver(focused);
+  }
+  if (kits.includes('rail')) dressRailYard(focused, mapId === 'skybridge');
+  if (kits.includes('winterLake')) dressWinterLakes(focused);
+}
+
+// =============================================================================
+// maps r1 — COASTAL SHORE dressing (beached boats, driftwood, buoys, jetty)
+// =============================================================================
+
+// Open clinker fishing boat beached above the surf: planked sides, transom,
+// thwarts, a short mast with a furled boom. Reads "working beach" at range.
+function beachedBoat(
+  buckets: DressingBuckets,
+  rng: Rng,
+  heightField: DressingHeightField,
+  x: number,
+  z: number,
+  yaw: number,
+  withMast: boolean,
+  groundingReceipts?: GroundingReceipt[] | null,
+): void {
+  const parts: THREE.BufferGeometry[] = [];
+  const L = 4.6 + rng() * 1.2, W = 1.6, H = 0.72;
+  const pose = planGroundedObbPose(heightField, x, z, L * 0.5, W * 0.5, yaw, 0.06);
+  for (const s of [-1, 1]) {
+    for (let r = 0; r < 3; r++) { // three lapped strakes each side
+      const pl = box(L - r * 0.55, 0.20, 0.07, 1.2);
+      pl.rotateZ((rng() - 0.5) * 0.03);
+      pl.translate(0, 0.16 + r * 0.20, s * (W / 2 - r * 0.07));
+      parts.push(pl);
+    }
+  }
+  const bow = box(0.08, H * 0.9, W * 0.8, 1.2);
+  bow.rotateY(Math.PI / 4);
+  bow.translate(L / 2 - 0.14, H * 0.45, 0);
+  parts.push(bow);
+  const transom = box(0.08, H * 0.8, W * 0.9, 1.2);
+  transom.translate(-L / 2 + 0.12, H * 0.42, 0);
+  parts.push(transom);
+  for (const tx of [-L * 0.24, L * 0.18]) {
+    const th = box(0.30, 0.06, W * 0.94, 1.2);
+    th.translate(tx, H * 0.68, 0);
+    parts.push(th);
+  }
+  const keelList = 0.10 + rng() * 0.08; // beached hulls heel over a touch
+  for (const g of parts) {
+    // Length is local X: a Z rotation pitches/buries the bow and stern.
+    g.rotateX(keelList);
+    g.rotateY(yaw);
+    applyGroundNormal(g, pose);
+  }
+  // Seat the rigid hull using its emitted lower faces AFTER heel and ground
+  // alignment, not the unheeled OBB support plane. The opposite gunwale is
+  // intentionally higher; don't deform both sides down into the beach.
+  let supportY = -Infinity;
+  for (const i of [0, 3, 6, 7]) { // two lowest strakes, bow and transom
+    const g = parts[i] as THREE.BoxGeometry, p = g.attributes.position;
+    const across = Math.max(1, Math.ceil(g.parameters.width / 0.35));
+    const along = Math.max(1, Math.ceil(g.parameters.depth / 0.35));
+    for (let a = 0; a <= across; a++) for (let b = 0; b <= along; b++) {
+      const u = a / across, v = b / along;
+      const px = p.getX(12) + (p.getX(13) - p.getX(12)) * u + (p.getX(14) - p.getX(12)) * v;
+      const py = p.getY(12) + (p.getY(13) - p.getY(12)) * u + (p.getY(14) - p.getY(12)) * v;
+      const pz = p.getZ(12) + (p.getZ(13) - p.getZ(12)) * u + (p.getZ(14) - p.getZ(12)) * v;
+      supportY = Math.max(supportY, heightField.getHeightAt(x + px, z + pz) - py);
+    }
+  }
+  const boatY = supportY - 0.035;
+  for (const g of parts) {
+    g.translate(x, boatY, z);
+    buckets.wood.push(jitterUV(g, rng));
+  }
+  if (withMast) {
+    const mast = box(0.11, 3.4, 0.11, 2.0);
+    // Plant the foot on the actual forward thwart, not in the floorless hull.
+    mast.translate(L * 0.18, H * 0.68 + 0.03 + 1.7, 0);
+    mast.rotateX(keelList);
+    mast.rotateY(yaw);
+    applyGroundNormal(mast, pose);
+    mast.translate(x, boatY, z);
+    buckets.wood.push(mast);
+    const boom = box(0.08, 0.08, 2.3, 2.0);
+    boom.rotateY((rng() - 0.5) * 0.4);
+    boom.translate(L * 0.18, 1.21, 0);
+    boom.rotateX(keelList);
+    boom.rotateY(yaw);
+    applyGroundNormal(boom, pose);
+    boom.translate(x, boatY, z);
+    buckets.wood.push(boom);
+  }
+  groundingReceipts?.push({
+    kind: 'beached-boat', x, y: boatY, z, relief: pose.spread,
+    baseClearance: boatY - supportY, supportMin: pose.min, supportMax: pose.max,
+  });
+}
+
+function addCoastalBoats(
+  lake: LayoutDisc,
+  big: boolean,
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+  groundingReceipts?: GroundingReceipt[] | null,
+): void {
+  const boatCount = big ? 3 : 1;
+  for (let i = 0; i < boatCount; i++) {
+    const angle = Math.PI + (rng() - 0.5) * 1.5;
+    const radius = lake.r * (1.045 + rng() * 0.05);
+    const x = lake.x + Math.cos(angle) * radius;
+    const z = lake.z + Math.sin(angle) * radius;
+    if (!isDressingPointClear(heightField, x, z, 470, 7)) continue;
+    beachedBoat(buckets, rng, heightField, x, z,
+      angle + Math.PI / 2 + (rng() - 0.5) * 0.5, rng() < 0.55, groundingReceipts);
+  }
+}
+
+function addCoastalDriftwood(
+  lake: LayoutDisc,
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+  groundingReceipts?: GroundingReceipt[] | null,
+): void {
+  const driftCount = Math.round(lake.r * 0.14);
+  for (let i = 0; i < driftCount; i++) {
+    const angle = Math.PI + (rng() - 0.5) * 2.2;
+    const radius = lake.r * (1.03 + rng() * 0.09);
+    const x = lake.x + Math.cos(angle) * radius;
+    const z = lake.z + Math.sin(angle) * radius;
+    if (!isDressingPointClear(heightField, x, z, 470, 6)) continue;
+    const length = 1.6 + rng() * 2.6;
+    const yaw = angle + Math.PI / 2 + (rng() - 0.5) * 0.8;
+    const pose = planGroundedSegment(
+      heightField, x, z, Math.cos(yaw), -Math.sin(yaw), length, 0.12, 0.03,
+    );
+    const log = box(length, 0.16 + rng() * 0.12, 0.16 + rng() * 0.12, 1.4);
+    _groundNormal.set(pose.axisX, pose.axisY, pose.axisZ);
+    _groundQuat.setFromUnitVectors(_groundRight, _groundNormal);
+    log.applyQuaternion(_groundQuat);
+    log.translate(x, pose.y, z);
+    buckets.wood.push(jitterUV(log, rng));
+    groundingReceipts?.push({
+      kind: 'driftwood', x, y: pose.y, z, relief: pose.relief,
+      baseClearance: -0.03, start: pose.start, end: pose.end,
+    });
+  }
+}
+
+function addCoastalBuoys(
+  lake: LayoutDisc,
+  big: boolean,
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  const buoyCount = big ? 5 : 2;
+  for (let i = 0; i < buoyCount; i++) {
+    const angle = Math.PI + (rng() - 0.5) * 1.8;
+    const radius = lake.r * (0.72 + rng() * 0.2);
+    const x = lake.x + Math.cos(angle) * radius;
+    const z = lake.z + Math.sin(angle) * radius;
+    if (Math.max(Math.abs(x), Math.abs(z)) > 480) continue;
+    const buoy = new THREE.SphereGeometry(0.32 + rng() * 0.12, 8, 6);
+    scaleUV(buoy, 1.5, 1);
+    const waterline = heightField.getWaterSurfaceHeightAt?.(x, z)
+      ?? heightField.getHeightAt(x, z) + (heightField.getWaterDepthAt?.(x, z) ?? 0);
+    buoy.translate(x, waterline + 0.16, z);
+    buckets.plaster.push(jitterUV(buoy, rng));
+  }
+}
+
+function addCoastalJetty(
+  lake: LayoutDisc,
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  const angle = Math.PI + (rng() - 0.5) * 0.5;
+  const x = lake.x + Math.cos(angle) * lake.r * 1.05;
+  const z = lake.z + Math.sin(angle) * lake.r * 1.05;
+  jetty(buckets, rng, x, z, angle + Math.PI, heightField.getHeightAt(x, z), 11);
+}
+
+function dressCoastalShore({
+  L, heightField, rng, buckets, groundingReceipts,
+}: FocusedDressingContext): void {
+  for (const lake of L.lakes || []) {
+    const big = lake.r >= 110;
+    addCoastalBoats(lake, big, heightField, rng, buckets, groundingReceipts);
+    addCoastalDriftwood(lake, heightField, rng, buckets, groundingReceipts);
+    addCoastalBuoys(lake, big, heightField, rng, buckets);
+    if (big) addCoastalJetty(lake, heightField, rng, buckets);
+  }
+}
+
+// =============================================================================
+// maps r1 — AUTUMN RIVER dressing (ruined bridge, ford posts, bank reeds)
+// =============================================================================
+
+function addRiverBankReeds(
+  links: readonly LayoutDisc[],
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  for (const m of links) {
+    const clumps = 2 + ((rng() * 3) | 0);
+    for (let i = 0; i < clumps; i++) {
+      const a = rng() * Math.PI * 2;
+      const rr = m.r * (0.85 + rng() * 0.3);
+      const x = m.x + Math.cos(a) * rr, z = m.z + Math.sin(a) * rr;
+      if (Math.max(Math.abs(x), Math.abs(z)) > 470) continue;
+      if (heightField._roadDist(x, z) < 6) continue;
+      reedClump(buckets, rng, heightField, x, z);
+    }
+  }
+}
+
+function addBridgeAbutment(
+  side: number,
+  centerX: number,
+  centerZ: number,
+  cross: number,
+  halfSpan: number,
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  const x = centerX + Math.cos(cross) * halfSpan * side;
+  const z = centerZ + Math.sin(cross) * halfSpan * side;
+  const y = heightField.getHeightAt(x, z);
+  const abutment = box(6.2, 3.2, 5.4, 0.6);
+  abutment.rotateY(-cross);
+  abutment.translate(x, y + 1.2, z);
+  buckets.stone.push(jitterUV(abutment, rng));
+  const stub = box(3.8, 1.6, 4.6, 0.6);
+  stub.rotateY(-cross);
+  stub.rotateZ(-side * Math.cos(cross) * 0.30);
+  stub.rotateX(side * Math.sin(cross) * 0.30);
+  stub.translate(x - Math.cos(cross) * side * 4.0, y + 2.2,
+    z - Math.sin(cross) * side * 4.0);
+  buckets.stone.push(jitterUV(stub, rng));
+  const parapet = box(0.5, 1.1, 5.8, 0.8);
+  parapet.rotateY(-cross);
+  parapet.translate(x + Math.cos(cross + Math.PI / 2) * 2.6, y + 3.2,
+    z + Math.sin(cross + Math.PI / 2) * 2.6);
+  buckets.stone.push(jitterUV(parapet, rng));
+  const wing = box(1.6, 1.8, 6.4, 0.6);
+  wing.rotateY(-cross + side * 0.5);
+  wing.translate(x + Math.cos(cross) * side * 2.2, y + 0.6,
+    z + Math.sin(cross) * side * 2.2);
+  buckets.stone.push(jitterUV(wing, rng));
+}
+
+function addFallenBridgeSlabs(
+  centerX: number,
+  centerZ: number,
+  cross: number,
+  halfSpan: number,
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  for (let k = 0; k < 5; k++) {
+    const offset = (rng() - 0.5) * halfSpan * 1.2;
+    const x = centerX + Math.cos(cross) * offset;
+    const z = centerZ + Math.sin(cross) * offset;
+    const slab = box(2.2 + rng() * 1.6, 0.7, 2.6 + rng() * 1.0, 0.7);
+    slab.rotateY(-cross + (rng() - 0.5) * 0.8);
+    slab.rotateZ((rng() - 0.5) * 0.5);
+    slab.translate(x, heightField.getHeightAt(x, z) + 0.3, z);
+    buckets.stone.push(jitterUV(slab, rng));
+  }
+}
+
+function addRuinedRiverBridge(
+  links: readonly LayoutDisc[],
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  const centerIndex = Math.floor(links.length * 0.4);
+  const before = links[Math.max(0, centerIndex - 1)];
+  const after = links[Math.min(links.length - 1, centerIndex + 1)];
+  const centerX = links[centerIndex].x;
+  const centerZ = links[centerIndex].z;
+  const cross = Math.atan2(after.z - before.z, after.x - before.x) + Math.PI / 2;
+  const halfSpan = links[centerIndex].r * 1.02;
+  for (const side of [-1, 1]) {
+    addBridgeAbutment(side, centerX, centerZ, cross, halfSpan, heightField, rng, buckets);
+  }
+  addFallenBridgeSlabs(centerX, centerZ, cross, halfSpan, heightField, rng, buckets);
+}
+
+function isInRiver(links: readonly LayoutDisc[], x: number, z: number): boolean {
+  return links.some((link) => Math.hypot(x - link.x, z - link.z) < link.r * 0.85);
+}
+
+function addFordMarkerPair(
+  previous: readonly [number, number],
+  current: readonly [number, number],
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  const [previousX, previousZ] = previous;
+  const [x, z] = current;
+  const tangentX = x - previousX;
+  const tangentZ = z - previousZ;
+  const tangentLength = Math.hypot(tangentX, tangentZ) || 1;
+  const lateralX = -tangentZ / tangentLength;
+  const lateralZ = tangentX / tangentLength;
+  for (const side of [-1, 1]) {
+    const markerX = x + lateralX * 4.6 * side;
+    const markerZ = z + lateralZ * 4.6 * side;
+    if (Math.max(Math.abs(markerX), Math.abs(markerZ)) > 470) continue;
+    const markerY = heightField.getHeightAt(markerX, markerZ);
+    const post = box(0.16, 1.5, 0.16, 1.6);
+    post.rotateY(rng() * Math.PI);
+    post.translate(markerX, markerY + 0.72, markerZ);
+    buckets.wood.push(jitterUV(post, rng));
+    const tip = box(0.19, 0.22, 0.19, 1.0);
+    tip.translate(markerX, markerY + 1.45, markerZ);
+    buckets.plaster.push(tip);
+  }
+}
+
+function addRiverFordMarkers(
+  roads: DressingLayout['roads'],
+  links: readonly LayoutDisc[],
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  for (const nodes of roads) {
+    let prev = false;
+    for (let i = 0; i < nodes.length; i++) {
+      const [nx, nz] = nodes[i];
+      const now = isInRiver(links, nx, nz);
+      if (now !== prev && i > 0) {
+        addFordMarkerPair(nodes[i - 1], nodes[i], heightField, rng, buckets);
+      }
+      prev = now;
+    }
+  }
+}
+
+function dressAutumnRiver({ L, heightField, rng, buckets }: FocusedDressingContext): void {
+  const links = (L.marshes || []).filter((marsh) => marsh.r <= 40);
+  if (links.length < 3) return;
+  addRiverBankReeds(links, heightField, rng, buckets);
+  addRuinedRiverBridge(links, heightField, rng, buckets);
+  addRiverFordMarkers(L.roads, links, heightField, rng, buckets);
+}
+
+function dressLakeRiverLandings(
+  { L, heightField, rng, buckets, groundingReceipts }: FocusedDressingContext,
+  anchors: readonly RiverLandingAnchor[],
+): void {
+  // Authored landing budget is independent of channel interpolation density.
+  // Existing river/coast vocabulary stays in the same wood/straw buckets.
+  for (const anchor of anchors.slice(0, 4)) {
+    const landing = planRiverLanding(heightField, L.lakes ?? [], anchor);
+    if (!landing) continue;
+    beachedBoat(buckets, rng, heightField, landing.boatX, landing.boatZ,
+      landing.boatYaw, false, groundingReceipts);
+    jetty(buckets, rng, landing.x, landing.z, landing.angle,
+      landing.deckY - 0.82, landing.length, heightField, groundingReceipts);
+    if (anchor.shoreReeds !== false) addRiverBankReeds([L.lakes![anchor.lakeIndex]], heightField, rng, buckets);
+  }
+}
+
+// =============================================================================
+// maps r1 — RAIL YARD dressing (track fans, buffers, coal heaps, cable drums)
+// =============================================================================
+
+/** Build-time footprint check against the same liquid mask used by water/wakes. */
+export function railSegmentIsDry(
+  heightField: DressingHeightField, x: number, za: number, zb: number,
+): boolean {
+  const waterAt = heightField.getWaterMaskAt;
+  if (!waterAt) return true;
+  // Cover the 3 m ballast width, not just the rail center. The longitudinal
+  // margin encloses the slab overhang even after its terrain-following tilt.
+  // Quarter points also catch a wet cove between two otherwise dry endpoints.
+  for (let longitudinal = 0; longitudinal <= 4; longitudinal++) {
+    const z = za - 0.20 + (zb - za + 0.40) * longitudinal / 4;
+    for (let lateral = -3; lateral <= 3; lateral++) {
+      if (waterAt(x + lateral * 0.50, z) > 0.01) return false;
+    }
+  }
+  return true;
+}
+
+// One rail line: ballast bed + twin rails + sleepers, laid in ~10 m segments
+// that follow the terrain (the yard is near-flat; segments tilt to match).
+// Soft dressing by contract — hulls roll over the 0.2 m bed like a curb.
+function railLine(
+  buckets: DressingBuckets,
+  rng: Rng,
+  heightField: DressingHeightField,
+  x: number,
+  z0: number,
+  z1: number,
+  washoutLiquid = false,
+): void {
+  const segL = 10;
+  const n = Math.max(1, Math.round((z1 - z0) / segL));
+  for (let k = 0; k < n; k++) {
+    const za = z0 + k * segL, zb = Math.min(z1, za + segL);
+    const ya = heightField.getHeightAt(x, za), yb = heightField.getHeightAt(x, zb);
+    const zm = (za + zb) / 2, ym = (ya + yb) / 2;
+    const len = Math.hypot(zb - za, yb - ya);
+    const tilt = Math.atan2(yb - ya, zb - za);
+    const nS = Math.round(len / 1.4);
+    if (washoutLiquid && !railSegmentIsDry(heightField, x, za, zb)) {
+      // A drowned siding ends at the bank; the liquid surface is not ground
+      // that can support a paper-thin ballast slab. Advance the original 24
+      // BoxGeometry vertex-color draws plus one jitter draw per sleeper so
+      // surviving dry rails and all later yard dressing remain identical.
+      for (let draw = 0; draw < 24 + nS; draw++) rng();
+      continue;
+    }
+    // ballast slab — grey crushed-stone vertex paint on the matte 'baked'
+    // bucket (the 'stone' bucket is BRICK on railyard and read as brick beds)
+    const bal = box(3.0, 0.16, len + 0.35, 0.55);
+    {
+      const n = bal.attributes.position.count;
+      const col = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const v = 0.040 + rng() * 0.018;
+        col[i * 3] = v; col[i * 3 + 1] = v * 0.98; col[i * 3 + 2] = v * 0.94;
+      }
+      bal.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    }
+    bal.rotateX(-tilt);
+    bal.translate(x, ym + 0.07, zm);
+    (buckets.baked || buckets.stone).push(bal);
+    // twin rails
+    for (const s of [-0.72, 0.72]) {
+      const rail = box(0.09, 0.17, len + 0.06, 2.0);
+      rail.rotateX(-tilt);
+      rail.translate(x + s, ym + 0.24, zm);
+      buckets.dark.push(rail);
+    }
+    // sleepers every ~1.4 m
+    for (let sI = 0; sI < nS; sI++) {
+      const t = (sI + 0.5) / nS;
+      const sz = za + (zb - za) * t, sy = ya + (yb - ya) * t;
+      const sl = box(2.1, 0.09, 0.28, 1.4);
+      sl.translate(x + (rng() - 0.5) * 0.05, sy + 0.17, sz);
+      buckets.wood.push(sl);
+    }
+  }
+}
+
+// timber-and-steel buffer stop closing a stub track
+function bufferStop(
+  buckets: DressingBuckets,
+  rng: Rng,
+  heightField: DressingHeightField,
+  x: number,
+  z: number,
+): void {
+  const y = heightField.getHeightAt(x, z);
+  for (const s of [-0.72, 0.72]) {
+    const strut = box(0.18, 1.5, 0.18, 1.4);
+    strut.rotateX(-0.5);
+    strut.translate(x + s, y + 0.75, z + 0.3);
+    buckets.dark.push(strut);
+  }
+  const beam = box(2.2, 0.45, 0.28, 1.0);
+  beam.translate(x, y + 1.05, z - 0.05);
+  buckets.wood.push(jitterUV(beam, rng));
+}
+
+const RAIL_YARD_LINES = [
+  { x: 40, z0: -235, z1: 235 },
+  { x: 49, z0: -235, z1: 235 },
+  { x: 58, z0: -205, z1: 210 },
+  { x: 67, z0: -175, z1: 185 },
+  { x: 76, z0: -150, z1: 160 },
+  { x: -66, z0: -235, z1: 235 },
+  { x: -57, z0: -190, z1: 200 },
+] as const;
+
+function addRailYardLines(
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+  washoutLiquid: boolean,
+): void {
+  for (const line of RAIL_YARD_LINES) {
+    railLine(buckets, rng, heightField, line.x, line.z0, line.z1, washoutLiquid);
+  }
+  for (const line of RAIL_YARD_LINES) {
+    if (line.z1 < 230) bufferStop(buckets, rng, heightField, line.x, line.z1 + 0.8);
+    if (line.z0 > -230) bufferStop(buckets, rng, heightField, line.x, line.z0 - 0.8);
+  }
+}
+
+type CoalVertex = readonly [number, number, number];
+
+function coalSiteIsClear(
+  field: DressingHeightField, x: number, z: number, radius: number,
+  obstacles: readonly CollisionRecord[],
+): boolean {
+  let low = Infinity, high = -Infinity;
+  for (let iz = -2; iz <= 2; iz++) for (let ix = -2; ix <= 2; ix++) {
+    const px = x + ix * radius / 2, pz = z + iz * radius / 2;
+    if (field._roadDist(px, pz) < 7 || field.getWaterMaskAt?.(px, pz) > 0.01) return false;
+    const y = field.getHeightAt(px, pz);
+    if (!Number.isFinite(y)) return false;
+    low = Math.min(low, y); high = Math.max(high, y);
+  }
+  if (high - low > 0.4) return false;
+  return !obstacles.some(record => record.min[0] < x + radius + 0.5
+    && record.max[0] > x - radius - 0.5 && record.min[2] < z + radius + 0.5
+    && record.max[2] > z - radius - 0.5);
+}
+
+function coalFacet(
+  positions: number[], colors: number[], uvs: number[],
+  a: CoalVertex, b: CoalVertex, c: CoalVertex, phase: number,
+): void {
+  // Three small irregular facets retain a granular highlight, not smooth
+  // interpolated ellipsoid normals. No additional seeded draws are consumed.
+  const middle: CoalVertex = [(a[0] + b[0] + c[0]) / 3,
+    (a[1] + b[1] + c[1]) / 3 + 0.015 * (1 + Math.sin(phase * 2.7)),
+    (a[2] + b[2] + c[2]) / 3];
+  const corners = [a, b, c];
+  for (let edge = 0; edge < 3; edge++) {
+    const shade = 0.032 + 0.012 * Math.sin(phase * 4.1 + edge * 1.7);
+    for (const vertex of [corners[edge], corners[(edge + 1) % 3], middle]) {
+      positions.push(...vertex);
+      colors.push(shade * 0.94, shade, shade * 1.03);
+      uvs.push(vertex[0] * 0.6, vertex[2] * 0.6);
+    }
+  }
+}
+
+function makeCoalStockpile(
+  field: DressingHeightField, x: number, z: number,
+  radius: number, length: number, phase: number,
+): THREE.BufferGeometry {
+  const base: CoalVertex[] = [], shoulder: CoalVertex[] = [];
+  const height = 0.66 + (radius - 1.1) * 0.36;
+  for (let i = 0; i < 8; i++) {
+    const angle = i * Math.PI / 4;
+    const dx = Math.cos(angle) * radius, dz = Math.sin(angle) * length;
+    base.push([x + dx, field.getHeightAt(x + dx, z + dz) - 0.05, z + dz]);
+    const sx = x + dx * 0.47 + radius * 0.08, sz = z + dz * 0.47;
+    shoulder.push([sx, field.getHeightAt(sx, sz) + height * (0.54 + 0.06 * Math.sin(i * 2 + phase)), sz]);
+  }
+  const peak: CoalVertex = [x - radius * 0.1, field.getHeightAt(x - radius * 0.1, z) + height, z];
+  const positions: number[] = [], colors: number[] = [], uvs: number[] = [];
+  for (let i = 0; i < 8; i++) {
+    const next = (i + 1) % 8;
+    // Clockwise XZ winding faces upward in Three's Y-up world.
+    coalFacet(positions, colors, uvs, base[i], shoulder[i], base[next], phase + i * 3);
+    coalFacet(positions, colors, uvs, base[next], shoulder[i], shoulder[next], phase + i * 3 + 1);
+    coalFacet(positions, colors, uvs, shoulder[i], peak, shoulder[next], phase + i * 3 + 2);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.name = 'rail-coal-stockpile';
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function registerCoalStockpile(geometry: THREE.BufferGeometry, ctx: FocusedDressingContext): void {
+  const position = geometry.getAttribute('position'), points: Array<[number, number]> = [];
+  let low = Infinity, high = -Infinity;
+  for (let i = 0; i < position.count; i++) {
+    points.push([position.getX(i), position.getZ(i)]);
+    low = Math.min(low, position.getY(i)); high = Math.max(high, position.getY(i));
+  }
+  // Same ordinary conservative vertical prism as authored rocks: exact
+  // projected convex footprint/Y bounds, not a rectangular invisible wall.
+  const record = setConvexShape({min: [0, low, 0], max: [0, high, 0], kind: 'coal-heap'}, convexHull2(points));
+  ctx.obstacles?.push(record);
+  ctx.colliders?.push(cloneCollisionRecord(record));
+}
+
+function addRailYardCoalHeaps(
+  heightField: DressingHeightField, rng: Rng, buckets: DressingBuckets,
+  ctx: FocusedDressingContext,
+): void {
+  for (let i = 0; i < 7; i++) {
+    const oldX = 34 + rng() * 50, oldZ = -140 + rng() * 280;
+    if (heightField._roadDist(oldX, oldZ) < 7) continue;
+    // Preserve all original accepted/rejected RNG draws before new admission.
+    const size = rng(), stretch = rng(), phase = rng() * Math.PI;
+    const radius = 1.1 + size * 0.5, length = radius * (1.15 + stretch * 0.2);
+    // An unloading strip east of the outer siding, not piles across tracks.
+    const x = 84 + (oldX - 34) * 0.14, z = -52 + i * 7 + oldZ / 140;
+    if (!buckets.baked || !coalSiteIsClear(heightField, x, z, length, ctx.obstacles ?? [])) continue;
+    const heap = makeCoalStockpile(heightField, x, z, radius, length, phase);
+    buckets.baked.push(heap);
+    registerCoalStockpile(heap, ctx);
+  }
+}
+
+function addCableDrum(
+  x: number,
+  y: number,
+  z: number,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  const radius = 0.7 + rng() * 0.4;
+  const drum = new THREE.CylinderGeometry(radius, radius, radius * 1.1, 10, 1);
+  scaleUV(drum, 3, 1);
+  drum.rotateZ(Math.PI / 2);
+  drum.rotateY(rng() * Math.PI);
+  drum.translate(x, y + radius, z);
+  buckets.wood.push(jitterUV(drum, rng));
+}
+
+function addSleeperStack(
+  x: number,
+  y: number,
+  z: number,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  for (let layer = 0; layer < 3; layer++) {
+    for (let side = -1; side <= 1; side += 2) {
+      const sleeper = box(2.2, 0.14, 0.30, 1.2);
+      if (layer % 2) sleeper.rotateY(Math.PI / 2);
+      sleeper.translate(x + (layer % 2 ? side * 0.7 : 0), y + 0.1 + layer * 0.16,
+        z + (layer % 2 ? 0 : side * 0.7));
+      buckets.wood.push(jitterUV(sleeper, rng));
+    }
+  }
+}
+
+function addRailYardSupplies(
+  village: DressingLayout['village'],
+  heightField: DressingHeightField,
+  rng: Rng,
+  buckets: DressingBuckets,
+): void {
+  for (let i = 0; i < 9; i++) {
+    const x = village.x0 + 8 + rng() * 30;
+    const z = village.z0 + 12 + rng() * (village.z1 - village.z0 - 24);
+    if (heightField._roadDist(x, z) < 7) continue;
+    const y = heightField.getHeightAt(x, z);
+    if (rng() < 0.5) addCableDrum(x, y, z, rng, buckets);
+    else addSleeperStack(x, y, z, rng, buckets);
+  }
+}
+
+function dressRailYard(
+  ctx: FocusedDressingContext, washoutLiquid = false,
+): void {
+  const { L, heightField, rng, buckets } = ctx;
+  addRailYardLines(heightField, rng, buckets, washoutLiquid);
+  addRailYardCoalHeaps(heightField, rng, buckets, ctx);
+  addRailYardSupplies(L.village, heightField, rng, buckets);
+}

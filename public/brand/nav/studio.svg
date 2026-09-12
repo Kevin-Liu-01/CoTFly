@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 64" role="img" aria-label="Scene Studio — tank turret thrown by an explosion">
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" data-vehicle="leclerc">
+    <g id="studio-hull" data-separation="turret-ring">
+      <path d="M16 44h58l8 7-8 9H24l-11-8Z" fill="#17242d" stroke="#edf3f7" stroke-width="3"/>
+      <path d="M22 51h53" stroke="#45c7ff" stroke-width="2.5"/>
+    </g>
+    <g id="studio-turret" data-separation="turret-ring" transform="rotate(-8 49 24)">
+      <path d="M31 21h29l9 8H24Z" fill="#263844" stroke="#edf3f7" stroke-width="3"/>
+      <path d="M41 14h16l4 7H36Z" fill="#ff4d62" stroke="#edf3f7" stroke-width="2.5"/>
+      <path d="m58 17 25-8" stroke="#f0a030" stroke-width="3"/>
+    </g>
+  </g>
+  <path d="m48 43-7-8 8 1 2-10 5 9 9-5-4 10 9 4-11 3 2 9-8-6-8 7 2-10-10-3Z" fill="#f0a030"/>
+  <path d="m52 43-3-4 5 1 2-5 2 5 5-2-2 5 5 2-6 1 1 5-4-3-4 4 1-5-5-1Z" fill="#ff4d62"/>
+  <path d="m25 24-7-5m50 6 8-7m-52 21-9-1m59 4 8 2" fill="none" stroke="#45c7ff" stroke-width="2" stroke-linecap="round"/>
+</svg>

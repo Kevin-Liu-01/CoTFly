@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 64" role="img" aria-label="Home — tank parked inside a garage house">
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 28 48 5l39 23" stroke="#f0a030" stroke-width="4"/>
+    <path d="M16 25v34h64V25M22 59V29h52v30" stroke="#edf3f7" stroke-width="3"/>
+    <g id="home-bay" data-vehicle="m1a2">
+      <path d="M27 45h39l6 5-5 7H29l-7-6Z" fill="#17242d" stroke="#edf3f7" stroke-width="2"/>
+      <path d="M34 39h25l7 6H29Z" fill="#263844" stroke="#edf3f7" stroke-width="2"/>
+      <path d="M41 34h15l4 5H37Z" fill="#45c7ff" stroke="#edf3f7" stroke-width="2"/>
+      <path d="m55 36 17-5" stroke="#f0a030" stroke-width="2.5"/>
+      <path d="M29 50h38" stroke="#45c7ff" stroke-width="2"/>
+    </g>
+    <path d="M17 59h62" stroke="#f0a030" stroke-width="3"/>
+  </g>
+</svg>

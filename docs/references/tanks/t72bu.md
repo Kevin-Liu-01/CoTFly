@@ -1,0 +1,372 @@
+# T-72BU (`t72bu`)
+
+**Exact variant modeled:** T-72BU — the development designation of the
+T-90 obr. 1992: T-72B hull + cast turret with full Kontakt-5 wedge fit,
+Shtora-1 dazzlers, 1A45 FCS. Renamed T-90 for service. Visually a
+K-5 T-72B with Shtora "eyes"; NOT the later T-90A (`t90a`, ESSA fit).
+
+## Corroborated dimensions
+
+| Measure | Value | Sources (2+ independent) |
+|---|---|---|
+| Hull length | 6.86 m | en.wikipedia.org/wiki/T-90; tank-afv.com/modern/Russia/t-90_mbt.php |
+| Overall length (gun forward) | 9.53 m | en.wikipedia.org/wiki/T-90 |
+| Width | 3.78 m over skirts | en.wikipedia.org/wiki/T-90 |
+| Height | 2.22–2.23 m | en.wikipedia.org/wiki/T-90 |
+| Gun | 2A46M 125 mm, tube 6.0 m, mid evacuator, sleeve | en.wikipedia.org/wiki/2A46_125_mm_gun |
+| Road wheels | 6, rear sprocket, full skirts | en.wikipedia.org/wiki/T-90 |
+
+## Identity cues
+
+- Turret: cast dome with K-5 wedges front cheeks + roof-edge K-5 row;
+  Shtora OTShU-1-7 dazzlers both sides of the gun; cupola right with tall
+  sight cluster; bustle basket ring at rear.
+- Hull: K-5 glacis wedges; drums + log at rear; T-72 wheels.
+
+## Reference links (links only)
+
+1. https://en.wikipedia.org/wiki/T-90 — obr.1992 identity (CC BY-SA)
+2. https://tank-afv.com/modern/Russia/t-90_mbt.php — obr.1992 walk-through
+3. https://en.wikipedia.org/wiki/Kontakt-5 — wedge layout
+
+## Local GLB oracle notes
+
+Path: `public/models/tanks/community/recovered/t72bu.glb`
+Width-normalized (3.78 m) probe:
+- whole 3.78 × 3.58 × 10.89. IMPORTANT: the barrel is parented to the HULL
+  node (turretNode '^Turret$' matched only the dome) — ref hull mask spans
+  z −5.45…+5.45 including the thin barrel (r ≈ 0.13) out to 5.45.
+  That is why the baseline gun component reads 100 (both overhang masks
+  empty beyond the union hull bounds); the barrel is effectively scored
+  inside the HULL and WHOLE masks.
+- hull proper (halfW ≥ 1): z −5.45…+2.6 (≈8.0), deck y ≈ 1.8–1.9 (tall!),
+  glacis nose ≈ 1.33, rear 1.86.
+- turret (dome only, no gun): z −3.22…+0.84, dome z −1.82…+0.21 halfW
+  1.5–1.7, roof ≈ 2.4, sight cluster 2.9, mast to 3.58 at z −2.33; bustle
+  basket z −2.1…−3.2 (halfW 0.77–1.11, y→2.2); dome center ≈ −0.8.
+- gun axis y ≈ 1.75; muzzle-to-dome-center ≈ 6.25.
+Oracle defects: hull-parented barrel; proportionally tall model
+(scale 1.23); very long hull.
+
+## Mismatch log
+
+| Date | total | minView | hull | turret | gun | tracks | change |
+|---|---|---|---|---|---|---|---|
+| 2026-07-30 | 73.8 | 75.4 | 80 | 30 | 100 | 84 | baseline (t90a donor spec, SOVIET template) |
+| 2026-07-30 | 74.3 | 80.1 | 79 | 32 | 100 | 84 | donor->standalone: zC -1.425, tall 1.80 deck 8.0 hull, dome 3.35x2.50 +0.575 fwd, muzzle kept just short of oracle hull-parented barrel tip (G stays 100); T capped: oracle upper mask has no gun |
+| 2026-07-30 r2 | 74.9 | — | 81 | 32 | 100 | 84 | shaded r2: radial-fin ERA replaced w/ K-5 clamshell + flat flank tiles, Shtora eyes, evac, NSVT, snorkel on deck brackets, drums+log, skirt armor; T still capped by oracle hull-parented barrel |
+
+r3 (shaded-parity r2 items): 74.9 → 75.0. The K-5 kit finally has clamshell VOLUME —
+two proud wedge courses per cheek seated on the dome skin with end caps + dark seams,
+steel-dark tone; Shtora eyes read as boxed housings w/ glass flanking the mantlet
+(r2 geometry existed but sat inside the dome ellipse); evacuator drum + dark seam rings
+in a 0.67 m sleeve gap; skirts fender-lip→axle. Turret mask (31.7) still gates the id —
+dome re-proportion remains the round-4 item.
+
+r4 FROM-SCRATCH rebuild (2026-07-31, profiles/t72bu.json): 75.0 -> 78.4 (H81->84 T32->37
+G100 R84->88, minView 86.1). Lofted hull with the print's hull-parented dome-filler band
+(matched as a hull-bucket collar) and overhanging tail rack; wide low dome (the tall-dome
+read of the side band was tried across two passes and scored worse — the 2.8-2.9 tops are
+the print's sight cluster, kept as the big left cluster box); K-5 + Shtora on the measured
+skin; tube to the measured contour (axis 1.715, muzzle 5.448). DOCUMENTED CAP (unchanged):
+the oracle's BARREL is hull-parented, so both component masks split the tube across rigs —
+G pins at 100 (empty overhang crop) while T stays capped in the 30s; the whole-silhouette
+views run 87-94.
+
+## Geometry-gate v6 certification (2026-07-31, gate 8d552c2, dims-first rebuild r5)
+Final v6 row: hull 0 whole 0 turret 0 stations 0 dims 100 floaters 100
+Dims vs published: ALL <=1% - heightM 2.25 hullL 6.87 overall 9.56 width 3.80.
+Oracle audit (v6 true cameras, width-normalized frame): height +30.5% (2.911), hullLength +16.1% (7.967), overall +14.5% (10.909); BARREL FUSED INTO THE HULL MESH.
+Certified oracle-defect caps (component | ceiling | cause):
+- hullCurves + wholeCurves + turretCurves + stations | ceiling ~0 (all four) | the print's barrel is fused into the hull-node mesh as a SINGLE primitive (repair_oracles inspect: mesh#0 1p spanning x -84.6..143.3 raw - node-level surgery cannot split it; the chieftain5-style regroup needs separate primitives). Under gate v6 the hull-anchored registration inherits the barrel-extended hull span: measured reg dAlong -1.10 m on the side view, which misaligns EVERY column of every row and zeroes the curves and the station slicing. The correct rig is kept (barrel articulates on rig_gun; rig probe green) - matching the defective parenting would break articulation and the floater poses.
+A cap never excuses dims: every dim other than the certified widthM bias is inside the 1% grace (see row above). Build is dims-first: published spec.dims anchor the envelope; the caps quantify what the print cannot corroborate.
+
+## Geometry-gate v10 round-2 certification (2026-07-31, gate 86d1071+a524818+bfa751f)
+Final v10 row: hull 0 whole 0 turret 0 stations 0 dims 100 floaters 100
+Dims vs published (all inside the 1% grace -> dims 100): heightM 2.25/2.23 (1%) hullLengthM 6.87/6.86 (0.09%) overallLengthM 9.53/9.53 (0.04%) widthM 3.75/3.78 (0.9%)
+Oracle re-derivation (TRUE_AXES profile trace, width-normalized, 12% body filter): bodyH 2.884 vs pub 2.23 (+29.3%); side-hull body span reads 9.44 (barrel fused into the hull mesh)
+Cap verdict: HOLDS — degenerate single-fused-primitive print (batch-3 certification) PLUS +29.3% stature; dims+floaters only
+A cap never excuses dims: this build measures published spec.dims at 100 with zero floaters across all five articulation poses.
+
+
+## r6 ORACLE-TRUST AUDIT (2026-08-01, russia-family dual-gate round)
+
+Width-normalized reference vs published dims: hull len +16.1%, height +29.3%, overall +14.5% — and the hull MESH ITSELF is polluted.
+
+**Structural findings:** Upper hull, BARREL and a full-footprint horizontal shadow PLATE are ONE baked primitive (mesh_324, spans the entire z range incl muzzle +5.45 and plate tail -5.45). Muzzle collar band >0.35 makes the barrel count as hull BODY: ref side-hull body span -3.98..+5.46 (mid +0.74) vs any true tank (~-0.73) => hull-anchored registration is displaced ~1.47 m for EVERY curve row; stations sample air (slices spread over the 10.9 m polluted span). No build can satisfy the curves without hull-parenting phantom geometry at the muzzle.
+
+**Certified caps (gate doctrine):** ALL curve rows + stations structurally capped at ~0 until oracle repair (mesh surgery: split barrel to a gun node, delete plate triangles — beyond the rigid-transform queue). dims 100 / floaters 100 hold.
+
+**Gate state after r6:** hullCurves 0 / wholeCurves 0 / turretCurves 0 / stations 0 / dims 100 / floaters 100. (r5 build retained; NOT worth iterating against this oracle.)
+
+Probes: tools/tmp-ru-worldtrace.mjs (absolute-world curve dumps),
+tools/tmp-ru-overlay.mjs (registered ref/proc mask diffs),
+tools/tmp-ru-ceilings.py (dims-clamped achievability ceilings),
+tools/tmp-ru-glbnodes.py (scene-graph/bounds audit — no vertex reads).
+Repair queue ask: re-parent baked barrels to gun nodes and strip the
+shadow plates from the t-series TurretMesh/hull meshes (mesh-level surgery
+beyond the rigid-transform queue); t72bu is unusable as an oracle until then.
+
+## batch-9 ORACLE REPAIR (2026-08-01, tools/repair_oracles.py REPAIRS['t72bu'])
+
+INDEX SURGERY on mesh_324 (no authored vertex/attribute byte changes; the
+prim is re-pointed at trimmed index accessors appended to the bin — loader
+normalization frames cannot re-phase). Recipe re-runnable from the pristine
+.bak (snapshotted 2026-08-01) and byte-idempotent (re-run + shasum verified).
+
+1. BARREL SPLIT: the fused 2A46M resolved to 29 clean loose components
+   (mantlet collar block world x 34.00..40.46 + tube rings + muzzle x
+   143.34); no triangle crosses the audited collar station (~x 34), so the
+   bisect degenerated to an exact component split — 294 tris moved into a
+   new 'GunMesh' under a new 'Gun' node on the print's own Turret pivot
+   (attribute rows copied into dedicated accessors). turretNode ^Turret$
+   carries the tube on rig_turret (board: barrel yaws with the dome), the
+   t62mv1/t64bv1/t72b_1987 barrel-in-turret pattern.
+2. PLATE STRIP: 86 shadow components / 200 tris — the full-footprint deck
+   AO layer (doubled quads 0.1..0.7 units over the real deck skin, which
+   spans below the band and is kept; hull plan footprint verified unchanged
+   without them).
+
+DEFECT SIGNATURE ELIMINATED: ref side-hull now spans z −5.47..+2.62 with
+body span −5.47..+2.50 (was −5.47..+5.44 / body to +3.85 — the muzzle
+counting as hull body); the ref turret mask now carries the tube to +5.44.
+Gate before -> after (both 2026-08-01): hull 0 -> 51.4, whole 0 -> 4.8,
+stations 0 -> 12.4, turret 0 -> 0 (rows now EXIST — the r5 proc was built
+against the dead oracle and its hull-parented gun parity now reads as a
+proc defect; next builder pass re-anchors, src-side), dims 100, floaters
+100 (unchanged).
+
+UPDATED CEILINGS (tmp-ru-ceilings vs the repaired trace): side_whole 69.7 /
+side_turret 52.3 / front_whole 58.4 / stations ~54.7 — THE ORACLE IS
+RESURRECTED: was ~0 across every curve row (structurally dead), now
+stature-limited only (+29% authored roof — proportions untouched per the
+batch-9 scope; the tall print remains an owner-level ceiling decision).
+
+## r7 vs the batch-9-RESURRECTED oracle (2026-08-01)
+
+Batch-9 split the fused 2A46M out of hull mesh_324 into GunMesh under a Gun
+node on the print's Turret pivot and stripped the doubled deck shadow layer;
+the default gun-token regex resolves the new node, so the loader now keys
+hullLengthM correctly. r7 re-seats the proc to the resurrected frame: dome
+-0.25 -> -0.72 (ref plan turret front +0.1..+0.3), gun pivot compensated
+(world unchanged), bow pulled to the ref's 2.47-2.62 plan front.
+
+**Gate rows (dead-oracle r6 -> post-repair r7):**
+hull 51.4 -> 51.4, whole 4.8 -> 0, turret 0 -> 0, stations 12.4 -> 8.6,
+dims 100 -> 100, floaters 100 -> 100. Registration is now sane (side
+dAlong +0.49 = the print's +16% tail absorbed); the remaining rows are
+STATURE-CAPPED, not structural.
+
+**CERTIFIED STATURE CAPS (per-column, worldtrace):**
+1. Crown: ref roof 2.84-2.90 over z -0.57..+0.78 (12+ side columns) vs
+   published 2.23 (+27%); the build's legal ceiling is 2.25 -> e 0.30-0.41
+   per column on side_whole/side_turret. With the p95 term this alone holds
+   side_whole/turret under ~40; measured mean 7-8% -> rows 0.
+2. Tail: ref hull runs to z -5.47 (published-legal build tail -4.16;
+   print +16% long): 5 ref-only columns [1.43..0.29]..[1.52..0.79] plus a
+   0.49 m registration bias — hull ceiling ~55-65 (achieved 51.4).
+3. Muzzle: ref +5.44 vs the published-overall build's +4.62: 6-7 ref-only
+   whole columns (long-print class; overallLengthM 9.53 is sovereign).
+Stations: slice 0 sits on the unmatchable tail (wPct 43) — one survives the
+trimmed mean; slices 2/5 sit under the proud crown. Ceiling ~55-70.
+A cap never excuses dims: dims 100, floaters 100, all four dims <=1.0%.
+
+VERDICT unchanged from r6: this print corroborates STRUCTURE (post-repair)
+but its +16%/+27% stature makes every curve row a certified-cap row; do not
+chase curves into the build (published dims sovereign).
+
+**r7 update (edge-on prism law, docs/GEOMETRY-GATE.md):** loftHull now subdivides at <=0.36 m and full-length fender/shelf/skirt-lip prisms are authored segmented, so station slices see real cross-section faces. State: hullCurves 51.4 / wholeCurves 0 / turretCurves 0 / stations 8.6 / dims 100 / floaters 100. (hullCurves recovered to 51.4, stations 8.6 — the barrel/plate cover cap (side cover ~18%) still bounds hull ~70 and whole/turret ~0-30; mesh surgery ask stands.)
+
+
+## BATCH-12 VERTEX NORMALIZATION + VERTEX ROUND (2026-08-01, owner ruling b522c34)
+
+Direct vertex analysis is now sanctioned (docs/GEOMETRY-GATE.md "Reference-model
+usage"). Toolchain: tools/vertex-extract.mjs (gate-frame vertex measurement:
+loader registration + safeScale + flip replicated; triangle-raster silhouettes,
+14 gate stations, landmarks, dims replica, orientation + interpenetration
+asserts), tools/vertex-normalize.mjs (warp planning, gate-meter plans -> glb
+control points), tools/vertex-workorder.mjs (both-model 96-col curves in world
+coords), tools/tmp-rv-board.mjs (mandatory turntable evidence ->
+shots/russia-vertex/).
+
+**Batch-12 recipe (tools/repair_oracles.py):** continuous piecewise-linear
+axis warp in glb world through each node's matrix — positions + normals,
+census-guarded, width axis untouched, POSITION min/max rebuilt from referenced
+verts, rebuilt from the pristine .bak, byte-idempotent (double-run shasum
+516a09fc9e85cfa01a77d27505ca0ca294e64194).
+
+Stylization before -> after: height +30.0%, hull mask +17.7%, overall +14.2% -> height -0.4%,
+hull mask 0%, overall -0.1%, width 0%
+(gate-meter plans in tools/vertex-normalize.mjs PLANS['t72bu']).
+The stylization-cap certifications of r5-r7 are RETIRED for this print.
+
+**Standing asserts (docs/references/vertex/t72bu.json):** orientation
+glacis +z / gun +z / agree True
+(descent runs {"runFront": 1.97, "runRear": 0.01}); interpenetration
+24 verts (worst dip 0.214 m outside the r>1.05 ring annulus).
+
+**Gate row after this round:** hull 0 / whole 0 / turret 0 / stations 17.8 / dims 98.2 / floaters 100.
+BUILD NOT YET RE-ANCHORED (old-frame build vs normalized oracle). The batch-12 warp also rebuilt the stale batch-9 POSITION min/max (loader/camera frames now sane).
+
+## VERTEX ROUND r2 — corner-driven re-anchor (2026-08-01)
+
+The batch-12 warp RE-CENTERED this print: mask +-3.43 (6.863 = pub), muzzle
++6.097 (overall 9.53 exact), axis ~1.49 — t90a-family frame now (the old
+aft-frame notes are obsolete). One pass + cluster A/B: 0 -> min 11 (hull 31
+/ whole 38.1 / turret 11 / stations 53.7 / dims 100). GEOMETRY RULING: the
+2.20 sight pillars really sit FORWARD at +1.29..+1.89 (pulling them back
+onto the dome cost turret 11 -> 5.4; reverted) — but visually the forward
+cluster floats over the glacis: it needs a proper bridge/pedestal fitting
+next pass. TURRET 11 SUSPECT: the print parents the BARREL in the HULL node
+(old packet note) — if the turret mask excludes the tube while mine carries
+gun+turret at yaw poses, that is the same fused-tube class as t72b_1987;
+verify with --rows=side_turret and consider an owner batch-13 split.
+NEXT: hull 31 (deck plateau noise columns, rear dip 1.18 @ -2.85), turret
+row decode, then front family fixes.
+
+## BATCH-13b RULING — registration fix, surgery NOT needed (2026-08-01)
+
+Census: the batch-9 split already created Gun under Turret (x 28.9..127.6
+glb); the registration simply never DECLARED it — t72bu now has gunNode
+'^Gun$' (userdrops5.js, out of the shared loop). Extract re-run clean.
+HOWEVER the turret-11 root is NOT yet proven: a direct mask probe shows
+proc/ref plan turret masks nearly IDENTICAL at pose 0 (14..309 vs 14..298
+px), while the calibrated digest reads ref turret rear at z -3.2 (the old
+packet's "basket run -1.5..-3.2") and side_turret reads ref NONE at
+-1.66..-1.87 — mutually contradictory. The workorder tool's PLAN axis is
+now ground-anchored (hullMask z0 + muzzle-oriented, vertex JSON injected
+into the page) but per-model offsets remain suspect (gate reg dy -0.437).
+NEXT WINDOW: dump the two plan turret masks as PNGs side by side (one-off
+probe), settle where the ref turret really ends, THEN either author the
+rear basket run or fix the digest — no build edits until the masks agree.
+Turret rows at yaw poses include the tube for BOTH models symmetrically
+(rig_gun nests under rig_turret in the harness) — not an asymmetry source.
+
+## VERTEX ROUND r3 — mask-dump verdict + rebuild (2026-08-01)
+
+MASKS SETTLED IT (tools/tmp-rv-maskdump.mjs, shots/russia-vertex/probe/):
+the ref turret ends at z -1.52 in BOTH plan and side — the digest's "-3.2
+basket run" was a TOOL BUG: vertex-workorder.mjs's plan A/B orientation
+pick compared span ENDPOINTS against the muzzle target, which is DEGENERATE
+(a contiguous mask maps its extremes identically under both modes; +-1px
+noise chose the branch). Fixed in the tool: orientation now comes from the
+whole-mask THIN-END test (the end held by the tube alone is the front),
+offset from the HULL trace. All prior PLAN-row world claims in any packet's
+digest output are suspect; side rows were always sane.
+
+Ref turret truth (gate-frame): dome front +1.44, widest +-1.67 over
+z +0.1..+0.5 (center ~+0.22), crown 2.24 carried OFF-CENTER (front row: only
+~1.75 at x~0 — mantlet slot dip), rear slope 1.83-1.86, pano spike 2.37
+@ -0.8, basket stub halfW 0.61-0.77 ending -1.52. Hull truth (gate 1024):
+rear plateau 1.267 over -2.5..-2.0, drum hump 1.51-1.56, PLAN NOTCHES both
+ends — plate ends -3.06/+2.80 at center; inner tail tabs (x 0.35..1.2) to
+-3.43 and fender prongs (x 1.41..1.87, y 0.75..1.19) to +3.40 carry the
+span. K-5 side course z +0.84..+2.44 at 1.87 with the 1.885 lump to +2.74;
+the ref's right skirt crosses the gate's outer plan column (matched with a
+segmented lipX 1.807 lip, keeping plan reg dy centered).
+
+Rebuild r3 (buildT72BU): turret pivot +0.20, low-wide dome (rings 1.66 x
+sz 0.72, apex 1.98), crown carried by cupola+Agat, thin sight rail on a
+strut, basket shrunk to the stub, tube re-contoured to the plan mask (root
+r.15 / sleeve .135 / evac .132 capped by the dims 12% body filter — at
+r>=.134 the evac counts as hull BODY beyond the nose and hullLengthM reads
+7.97). Gate: 11 -> min 39.4 (hull 39.4 / whole 51.8 / turret 64.8 /
+stations 85.9 / dims 100 / floaters 100). Board reviewed: orientation +
+articulation correct, kit solid.
+
+**CERTIFIED RESIDUAL (gear-fade class, t90a family):** every side_hull
+worst column is the print's running-gear fade — ref side-hull bottoms ramp
+0.5..0.9 over z -2.4..-3.3 and 0.26..0.87 over +2.9..+3.4 where an honest
+track/sprocket/idler runs at 0.04..0.42 (side-hull PNG dump confirms:
+no rear track in the print). Also poisons the row's dy (+0.04). Est.
+side_hull ceiling ~55-70; whole similar via the same columns. Dims stay
+100. NEXT: diffuse sub-0.15 side columns (deck furniture cm-noise), then
+turret side rows (dome rear slope 1.92 vs 1.85), front_whole center
+columns (dome 1.98 vs ref 1.75 mantlet-slot dip — lathe cannot dip;
+consider a clipped-crown dome variant).
+
+## VERTEX ROUND r4 (2026-08-02, r9 family round): 39.4 -> 52.8
+
+Gate: hull 39.4 -> 52.8 / whole 51.8 -> 59.2 / turret 64.8 -> 68.4 /
+stations 85.9 -> 81.8 / dims 100 / floaters 100 (min +13.4). Fresh
+workorder decode; what moved it:
+- LIP ASYMMETRY (the plan -1.87 monster, err 2.03): only the ref's RIGHT
+  skirt crosses the outer plan column — ruSkirtBand gained lipXL; left lip
+  1.778, right 1.807, panels x 1.786. The left column now reads the K-5
+  course + prong union (0.83..3.40 vs ref 0.82..3.29).
+- BOW: the K-5 center glacis TONGUE deleted (ref plan center front is
+  2.807 with NOTHING beyond — the old "2.8..3.3 center kit" was a flipped-
+  digest artifact); hooks pushed to z 3.09-3.17 (ref 3.156@0.9); inner
+  prong step (x 1.11..1.41, front 3.29).
+- TAIL: inner tabs re-seated x 0.13..1.10 (ref -3.43 run at 0.15..0.5 +
+  center notch -3.055 at |x|<0.1; the +-1.22 cols read the -3.05 plate).
+- CROWN RE-SEAT (front decode): ref front is 1.85-1.88 across +-0.2..0.55;
+  the tall cluster (2.222) lives LEFT x -1.04..-1.25 over z +0.23..+1.16.
+  Cupola moved there on a pedestal + 2.23 hatch-mass box; Agat lowered to
+  1.87; center crown stays the 1.98 low dome. The r9a trim of the forward
+  sight rail to z<=1.22 was WRONG — ref 2.2 side band runs +0.78..+1.91
+  (restored full length; cost 5 cols x 0.28 for one gate round).
+- K-5 wedges: k5Y 0.26 k5H 0.30 k5Len 0.95 (corners hung 1.21 vs ref
+  mantlet floor 1.452; tips poked plan z 1.68 vs ref 1.38).
+- Shtora eyes on the MANTLET PLANE: ruShtora gained p.eyeZ (local 1.62 ->
+  world 1.82, plan front 1.93 = ref 1.89-1.92) on skin brackets.
+- Basket ASYMMETRIC: right stub to x 0.87 (rear -1.495 at +0.82 col),
+  left ends 0.74; rear-flank deck bins at +-1.0..1.24 carry the ref's
+  -0.9 flank rear; pano spike z-trimmed to 1 col (-0.886 col reads 2.151).
+- Tube cx (b3m law): evac c +0.006, tip segs r 0.115/0.112 c +0.024 (ref
+  RIGHT edge runs to z 5.93, LEFT dies at 4.55).
+- Gear-fade softening: sprocket -2.62/y.84/r.24, idler 2.92/y.70/r.24.
+CERTIFIED RESIDUAL unchanged: side_hull 52.8 is still the print's
+missing rear/front track (ref bottoms 0.32..1.05 over -2.4..-3.3 where
+honest wheels run 0.06-0.4; wheel0/5 arcs themselves poke below the ref's
+faded line — full match impossible without deleting end wheels). Est
+ceiling ~55-70 stands. Board r9 reviewed: orientation correct, top mask
+97.8, cupola cluster + mantlet Shtora read, articulation clean, no
+floaters. NEXT: front_whole 59.2 (crown-zone leftovers at +-0.2..0.6 —
+re-digest; Agat/NSVT band), stations 81.8 (slice 0 tail class), plan 92 ✓
+nearly done.
+
+## TURRET-LANE round note (2026-08-06/07, "update all soviet turrets" sweep)
+§B3.1: mantlet block box -> inscribed cast-collar frustum (identical
+±0.26/±0.18 mask extremes) + dark boot ring; muzzleBore (shadow-named).
+Gate row EXACT: 52.8 | 52.8/59.2/68.4/81.8/100/100 — the oracle stays
+the certified-ceiling blocker (§7 orchestrator decision pending:
+warp batch vs ceiling-cert vs re-source).
+
+## CHEVRON round (2026-08-07, chevron+fused builder — §5.14 owner '<' order)
+The obr-92 K-5 clamshell takes the donor arrow yaw (CHEV marker): k5Yaw
+0.38 over the default k5T 0.55 = 53.3deg sweep — inside the MEASURED donor
+window (t90a leaf run (±1.29,1.36)->(±0.61,2.35) = 55.5deg; vladimir 47deg).
+k5Len 0.95 -> 0.90 keeps the yawed inner tips at z <= 1.41 (the r9 mantlet
+floor class); k5Seg 4 adds the §B3.1 sectioned-clamshell seams (flush,
+zero growth). The print's own r9-calibrated leaves were tangent-only
+(31.5deg — measured receipt); the owner's '<' governs (§B7).
+GATE: 52.8 | 52.8/59.2/68.3/81.8/100/100 vs baseline 52.8 | 52.8/59.2/
+68.4/81.8/100/100 (turret -0.1; min EXACT). Plan pair verifies the '<'
+(shots/russia-chevron-fused/after/t72bu/view-top.png).
+DELIVERED-PENDING-CRITIC; not committed.
+
+## CHEVRON-TIP round (2026-08-07, chevtip builder — owner §5.29 photo refinement + §5.31 spin check)
+TIP (§5.29): k5LeafOff — the clamshell leaves become TWO large flat K-5
+panels MEETING AT A POINTED TIP at the gun housing (tip ±0.19, 1.52w:
+inner caps tuck against the armored cover's flanks; the 2A46M emerges
+above/behind the tip). Outer ends (±1.25, 0.75w) embed into the cheek;
+mid-run half-buries in the dome bulge (the legacy out -0.05 hug class,
+§B2 no-air). 36deg shallow V (photo class — the §5.14 leaves ran 53deg
+and never met). K-5 lower lip + 4-seg clamshell grammar; flank tiles
+byte-held (k5LeafOff law).
+MG (§5.29 + §I migration — the roster's last mg0): hand nsvt() -> census
+FITTINGS.pintleMG at the same anchor (receiver top reproduces the hand
+carrier 2.14w within 6mm), barrel FORWARD (CROWS law) at the helper's
+own -0.06 droop, ammo can on. mg census 0 -> 1.
+EQUIPMENT (§5.29 photo grammar): 902A Tucha banks on BOTH upper cheeks
+flanking the Shtora eyes (six angled tubes per side, the b87 902B
+grammar). First seat (1.86-1.96w) cost side_whole -2.4 measured; r2
+dropped the banks onto the dome slope (tubes 0.24, y -0.06) -> -0.2.
+SPIN (§5.31 diagnosis): pivot-centered dome (cz 0) — yaw-90 top proof
+banked, turret-parent 0/0/0: NOT broken (minor print-asym dome bias
+only, ~0.1).
+GATE x2 (final bytes): 52.8 | 52.8/59/68.4/81.8/100/100 vs baseline
+52.8 | 52.8/59.2/68.3/81.8/100/100 — min EXACT, whole -0.2 (§5.29
+equipment cap, documented), turret +0.1. DELIVERED-PENDING-CRITIC;
+not committed.

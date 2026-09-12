@@ -1,0 +1,471 @@
+<!doctype html>
+<!-- Track-containment audit (owner law 2026-08-03, GEOMETRY-GATE.md #4): detects
+     track band geometry interpenetrating hull solids at the bow/stern wrap
+     zones. Band meshes are fingerprinted by their DynamicDrawUsage position
+     buffers (the only two in a procedural build). Hull candidates are
+     regular meshes that reach toward center-x (plates/fenders), so in-lane
+     running gear (instanced wheels, sprocket cylinders) can't false-flag.
+     Overlap = shared 2cm voxels between the (1-voxel-dilated) band surface
+     and a candidate's sampled surface. mode=list emits procedural ids.
+
+     SHOE-ENVELOPE extension (§B4 amendment; m1a1ha owner report 2026-08-05:
+     shoes glitched through the rear plates while the band test read 0/0).
+     The PLAYER-VISIBLE track surface is not the band: it is the instanced
+     shoe/pad system riding OUTSIDE it — instance centers sit
+     rOut = trackTh/2 + 0.012 off the band centerline (tankFactory
+     buildRunningGear) and the pad slab + grouser bars add 0.073 m outward
+     (trackShoeGeometries), i.e. +0.085 m beyond the band outer face
+     (~0.13 m off the centerline at the default trackTh 0.09). Every zone
+     now reports BOTH columns:
+       overlapVox/hits   — band test, semantics UNCHANGED (legacy parsers);
+       shoeVox/shoeHits  — hull-candidate surface voxels whose centers fall
+                           INSIDE a live shoe instance's oriented solid
+                           (per-instance OBB of the shoe geometry, composed
+                           from the ACTUAL world-transformed instance
+                           matrices). Native shoe-count metadata identifies
+                           both detailed and simplified shoe instances;
+                           LOD-owned suspension joints are not shoes.
+                           Scale-0 instances (coveredTop
+                           return runs, thrown sides) are honestly skipped,
+                           so a covered top run never false-flags a fender.
+                           SOLID-crossing (not surface-proximity) is the
+                           metric because the fleet's fenders/flaps are
+                           authored to hug the band line: at shoe level a
+                           surface-coincidence test flags visually-fine
+                           1-2 cm hugs (chieftain5-graduate calibration).
+                           Shoe zones anchor on the SHOE envelope extremes
+                           with the same ±0.50 m windows; the hull-candidate
+                           set and x-reach filter are identical to the band
+                           pass. dilate=1 (default) expands the shoe OBBs by
+                           one 2 cm voxel (near-contact margin, also covers
+                           the rest-pose gaps between scrolling pads);
+                           --exact / dilate=0 is the true-crossing read.
+                           GEAR DRESSING that rides the shoe envelope by
+                           design (per-side wrap-pad meshes, full-width
+                           dressing buckets like the m1a1ha hullCloth ramp
+                           belt authored 2 mm proud of the shoe surface) is
+                           excluded by conformance — >=70% of a candidate's
+                           in-zone surface inside the 6 cm shoe shell means
+                           it FOLLOWS the envelope instead of being pierced
+                           by it — and reported under dressingSkipped so
+                           the exclusion is auditable per zone.
+     Builds with no shoe instances (hand-rolled trackBucket surfaces):
+     the sampled track set IS the outermost visible surface, so shoeVox
+     mirrors bandVox there (shoe.mode says why). No scaling is applied to
+     either side (§D probe-frame law: this page compares the tank against
+     ITSELF in one frame, so the fidelity-harness width factor cancels). -->
+<meta charset="utf-8">
+<title>tmp-track-clip</title>
+<script type="module">
+import * as THREE from 'three';
+import { createTank } from '/src/vehicles/tankFactory.ts';
+import { MODEL_SOURCE, TANK_SPECS } from '/src/vehicles/specs.ts';
+import { isTrackShoeMesh } from './track-clip-classification.mjs';
+
+const params = new URLSearchParams(location.search);
+const mode = params.get('mode') || 'audit';
+// Strict mode is the authored-running-gear law.  Historical containment
+// scans allowed any one-sided, lane-local mesh to bypass the hull test; that
+// let a decorative mudflap/guard/fill plate masquerade as track geometry.
+// In strict mode only nodes explicitly created by buildRunningGear and tagged
+// `runningGear` are gear.  Every other rendered solid is audited across the
+// complete animated loop as well as the legacy bow/stern windows.
+const strict = params.get('strict') === '1';
+
+if (mode === 'list') {
+  const ids = Object.keys(TANK_SPECS).filter((id) => {
+    const src = MODEL_SOURCE[id];
+    return !src || src.source !== 'glb';
+  });
+  window.__CLIP_RESULT = { ids };
+  window.__CLIP_READY = true;
+} else {
+  const id = params.get('id') || 'm1a2';
+  const engineCtx = { setupShadowMaterial: (m) => m, anisotropy: 1, renderer: null };
+  const tank = createTank(id, engineCtx, { camoSeed: 4242, quality: 'high', proceduralOnly: true });
+  tank.root.updateMatrixWorld(true);
+
+  const V = 0.02; // voxel edge (m)
+  const key = (x, y, z) => `${Math.round(x / V)},${Math.round(y / V)},${Math.round(z / V)}`;
+
+  // ---- classify ----
+  const bands = [];
+  const meshes = [];
+  const shoeIMs = [];
+  tank.root.traverse((o) => {
+    if (!o.visible) return;
+    if (o.isMesh && !o.isInstancedMesh && o.geometry) {
+      const pos = o.geometry.getAttribute('position');
+      if (pos && pos.usage === THREE.DynamicDrawUsage) bands.push(o);
+      else if ((!strict || !o.userData?.runningGear)
+          && (!o.material || o.material.colorWrite !== false)) meshes.push(o);
+    } else if (isTrackShoeMesh(o)) {
+      // Native shoes publish their semantic receipt independently of LOD
+      // placement, which is also used by legitimate hull-mounted suspension.
+      shoeIMs.push(o);
+    }
+  });
+
+  const out = { id, bands: bands.length, zones: [], anomaly: null, mode: 'bands' };
+  // HAND-ROLLED FALLBACK (containment-law gap fix): builds without the two
+  // factory band meshes previously passed VACUOUSLY ("found 0"). When bands
+  // are absent, collect track-family bucket meshes (tankFactory tags them
+  // with userData.trackBucket) that RIDE THE GROUND (AABB min.y <= 0.35 —
+  // excludes spare-link stowage on glacis/turret, which shares the bucket
+  // material) and audit those as the track set instead.
+  let trackSet = bands;
+  if (bands.length !== 2) {
+    const bbp = new THREE.Box3();
+    const handRolled = meshes.filter((m) => {
+      if (!m.userData || !m.userData.trackBucket) return false;
+      bbp.setFromObject(m);
+      return bbp.min.y <= 0.35;
+    });
+    if (handRolled.length) {
+      trackSet = handRolled;
+      out.mode = `hand-rolled(${handRolled.length})`;
+      // hand-rolled meshes are hull-side candidates no longer
+      for (const m of handRolled) meshes.splice(meshes.indexOf(m), 1);
+    } else {
+      out.anomaly = `expected 2 band meshes, found ${bands.length} (no ground-riding track buckets either)`;
+      window.__CLIP_RESULT = out; window.__CLIP_READY = true;
+    }
+  }
+  if (!out.anomaly) {
+    // ---- track-set extremes + lanes ----
+    const bbox = new THREE.Box3();
+    const lanes = trackSet.map((b) => { bbox.setFromObject(b); return bbox.clone(); });
+    const zMax = Math.max(...lanes.map((l) => l.max.z));
+    const zMin = Math.min(...lanes.map((l) => l.min.z));
+    const yTop = Math.max(...lanes.map((l) => l.max.y));
+    const yBot = Math.min(...lanes.map((l) => l.min.y));
+    let laneInnerX = Math.min(...lanes.map((l) => Math.min(Math.abs(l.min.x), Math.abs(l.max.x))));
+    if (out.mode !== 'bands') {
+      // merged hand-rolled buckets can span both lanes in ONE mesh (min|x|
+      // ~0) — derive the true inner lane edge from the vertex distribution:
+      // 5th percentile of |x| among samples with |x| >= 0.15.
+      const xs = [];
+      const va = new THREE.Vector3();
+      for (const m of trackSet) {
+        const pos = m.geometry.getAttribute('position');
+        const step = Math.max(1, Math.floor(pos.count / 4000));
+        for (let i = 0; i < pos.count; i += step) {
+          va.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+          const ax = Math.abs(va.x);
+          if (ax >= 0.15) xs.push(ax);
+        }
+      }
+      if (xs.length > 50) {
+        xs.sort((p1, p2) => p1 - p2);
+        laneInnerX = xs[Math.floor(xs.length * 0.05)];
+      }
+    }
+
+    const zones = [
+      { name: 'front', z0: zMax - 0.50, z1: zMax + 0.06 },
+      { name: 'rear', z0: zMin - 0.06, z1: zMin + 0.50 },
+      ...(strict ? [{ name: 'sweep', z0: zMin - 0.06, z1: zMax + 0.06 }] : []),
+    ];
+    const y0 = yBot + 0.02, y1 = yTop + 0.06;
+
+    // ---- surface sampler into a voxel set, restricted to a zone ----
+    // sampleTris takes the transform + y window explicitly so the SHOE pass
+    // can sample per-instance world matrices in its own (wider) window;
+    // sampleMesh keeps the band pass byte-identical (o.matrixWorld, y0/y1).
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), p = new THREE.Vector3();
+    function sampleTris(g, mtx, z0, z1, yLo, yHi, set, xFilter) {
+      const pos = g.getAttribute('position'), idx = g.index;
+      const n = idx ? idx.count : pos.count;
+      for (let i = 0; i < n; i += 3) {
+        const i0 = idx ? idx.getX(i) : i, i1 = idx ? idx.getX(i + 1) : i + 1, i2 = idx ? idx.getX(i + 2) : i + 2;
+        a.fromBufferAttribute(pos, i0).applyMatrix4(mtx);
+        b.fromBufferAttribute(pos, i1).applyMatrix4(mtx);
+        c.fromBufferAttribute(pos, i2).applyMatrix4(mtx);
+        const zc = (a.z + b.z + c.z) / 3;
+        const zr = Math.max(a.z, b.z, c.z) - Math.min(a.z, b.z, c.z);
+        if (zc + zr < z0 || zc - zr > z1) continue;
+        const area = b.clone().sub(a).cross(c.clone().sub(a)).length() / 2;
+        const steps = Math.max(1, Math.min(24, Math.ceil(Math.sqrt(area) / 0.012)));
+        for (let u = 0; u <= steps; u++) {
+          for (let v = 0; v + u <= steps; v++) {
+            const w = steps - u - v;
+            p.set(0, 0, 0).addScaledVector(a, u / steps).addScaledVector(b, v / steps).addScaledVector(c, w / steps);
+            if (p.z < z0 || p.z > z1 || p.y < yLo || p.y > yHi) continue;
+            if (xFilter && !xFilter(p.x)) continue;
+            set.add(key(p.x, p.y, p.z));
+          }
+        }
+      }
+    }
+    function sampleMesh(o, z0, z1, set, xFilter) {
+      sampleTris(o.geometry, o.matrixWorld, z0, z1, y0, y1, set, xFilter);
+    }
+    // scratch for the shoe pass (per-instance world matrices; scale-0
+    // matrices = coveredTop return runs / thrown-side pads are skipped —
+    // hidden shoes are not a visible surface)
+    const _im4 = new THREE.Matrix4(), _wm4 = new THREE.Matrix4(), _ic = new THREE.Vector3();
+
+    for (const zone of zones) {
+      // band voxels (both sides), dilated 1 voxel
+      const bandSet = new Set();
+      for (const bm of trackSet) sampleMesh(bm, zone.z0, zone.z1, bandSet, null);
+      const dilate = params.get('dilate') !== '0';
+      const dilated = new Set(bandSet);
+      if (dilate) for (const k of bandSet) {
+        const [x, y, z] = k.split(',').map(Number);
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) dilated.add(`${x + dx},${y + dy},${z + dz}`);
+      }
+      // hull candidates: regular meshes reaching toward center-x
+      const hits = new Map();
+      const zoneBox = new THREE.Box3(
+        new THREE.Vector3(-1e3, y0, zone.z0), new THREE.Vector3(1e3, y1, zone.z1));
+      for (const m of meshes) {
+        // Explicit source-authored fender/skirt enclosures are the guard
+        // around the native belt, not a hull plate pierced by it. Keep this
+        // narrower than trackBucket: only factory-tagged trackGuard solids
+        // receive the exclusion, so ordinary trim/dressing remains audited.
+        if (!strict && m.userData?.trackGuard) continue;
+        bbox.setFromObject(m);
+        if (!bbox.intersectsBox(zoneBox)) continue;
+        const reach = Math.min(Math.abs(bbox.min.x), bbox.min.x <= 0 && bbox.max.x >= 0 ? 0 : Math.abs(bbox.max.x));
+        if (!strict && reach > Math.max(0.05, laneInnerX - 0.15)) continue; // legacy lane-local gear skip
+        const set = new Set();
+        sampleMesh(m, zone.z0, zone.z1, set, null);
+        let ov = 0; let lo = [1e9, 1e9, 1e9]; let hi = [-1e9, -1e9, -1e9];
+        for (const k of set) {
+          if (!dilated.has(k)) continue;
+          ov++;
+          const [x, y, z] = k.split(',').map(Number);
+          lo = [Math.min(lo[0], x), Math.min(lo[1], y), Math.min(lo[2], z)];
+          hi = [Math.max(hi[0], x), Math.max(hi[1], y), Math.max(hi[2], z)];
+        }
+        if (ov > 0) {
+          // per-mesh key (leopard r4 law: unnamed merged buckets collided on
+          // one display name and the totals UNDERCOUNTED — uuid keys, name
+          // kept for display)
+          hits.set(m.uuid, {
+            name: m.name || m.parent?.name || '(unnamed)',
+            vox: ov,
+            box: [lo.map((v) => +(v * V).toFixed(3)), hi.map((v) => +(v * V).toFixed(3))],
+          });
+        }
+      }
+      const total = [...hits.values()].reduce((s, h) => s + h.vox, 0);
+      out.zones.push({
+        name: zone.name, overlapVox: total,
+        hits: [...hits.values()].sort((x, y) => y.vox - x.vox).slice(0, 6)
+          .map((h) => ({ mesh: h.name, vox: h.vox, box: h.box })),
+      });
+    }
+
+    // ---- SHOE-ENVELOPE pass (§B4 amendment — see header note) --------------
+    const r3 = (v) => +v.toFixed(3);
+    if (shoeIMs.length) {
+      // exact world envelope of every LIVE shoe instance (scale-0 skipped)
+      const senv = new THREE.Box3();
+      const sv = new THREE.Vector3();
+      let liveInstances = 0;
+      for (const im of shoeIMs) {
+        const pos = im.geometry.getAttribute('position');
+        for (let k = 0; k < im.count; k++) {
+          im.getMatrixAt(k, _im4);
+          if (Math.abs(_im4.determinant()) < 1e-12) continue;
+          liveInstances++;
+          _wm4.multiplyMatrices(im.matrixWorld, _im4);
+          for (let i = 0; i < pos.count; i++) {
+            sv.fromBufferAttribute(pos, i).applyMatrix4(_wm4);
+            senv.expandByPoint(sv);
+          }
+        }
+      }
+      if (liveInstances > 0) {
+        out.shoe = {
+          mode: 'instanced', ims: shoeIMs.length, instances: liveInstances,
+          env: [[r3(senv.min.x), r3(senv.min.y), r3(senv.min.z)],
+                [r3(senv.max.x), r3(senv.max.y), r3(senv.max.z)]],
+          // measured shoe reach beyond the band AABB (validates the
+          // rOut + pad-depth = +0.085 m derivation per tank)
+          beyondBand: { front: r3(senv.max.z - zMax), rear: r3(zMin - senv.min.z), top: r3(senv.max.y - yTop) },
+        };
+        const sZones = [
+          { name: 'front', z0: senv.max.z - 0.50, z1: senv.max.z + 0.06 },
+          { name: 'rear', z0: senv.min.z - 0.06, z1: senv.min.z + 0.50 },
+          ...(strict ? [{ name: 'sweep', z0: senv.min.z - 0.06, z1: senv.max.z + 0.06 }] : []),
+        ];
+        const sy0 = senv.min.y + 0.02, sy1 = senv.max.y + 0.06;
+        // SOLID-CROSSING metric (not surface-vs-surface): the band pass's
+        // surface-coincidence proxy over-reads on shoes — the fleet's
+        // fenders/flaps are AUTHORED to hug the band line, so at shoe level
+        // "within one voxel of the surface" flags visually-fine 1-2 cm hugs
+        // (a chieftain5-graduate front-fender read in calibration). The owner
+        // phenomenon is a hull surface INSIDE the shoe volume (shoes poking
+        // THROUGH plates), so shoeVox counts hull-candidate surface voxels
+        // whose centers fall inside a live shoe instance's solid. The solid
+        // is the geometry's CONNECTED COMPONENTS (the merged pad/grouser/
+        // rail/horn/pin-cap primitives), each as a tight local AABB — one
+        // whole-geometry AABB is mostly air on the inner-chain layer (the
+        // 0.37 m rail/horn drop) and swallowed legitimate wrap-interior
+        // plates in calibration. Default run expands the component boxes by
+        // the 2 cm near-contact margin (band-pass dilate parity, and it also
+        // covers the ~2-3 cm rest-pose gaps between scrolling pads);
+        // --exact (dilate=0) is the true-crossing read. Instance matrices
+        // carry no scale, so local margins are meters.
+        const dilate = params.get('dilate') !== '0';
+        // connected components (vertex-position union-find, quantized 0.1 mm)
+        // -> tight UNDILATED local boxes; computed once per geometry
+        const compBoxes = new Map();
+        function componentsOf(g) {
+          if (compBoxes.has(g.uuid)) return compBoxes.get(g.uuid);
+          const pos = g.getAttribute('position'), idx = g.index;
+          const n = pos.count;
+          const parent = new Array(n);
+          for (let i = 0; i < n; i++) parent[i] = i;
+          const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+          const uni = (i, j) => { const a = find(i), b = find(j); if (a !== b) parent[a] = b; };
+          const byPos = new Map();
+          for (let i = 0; i < n; i++) {
+            const k = `${Math.round(pos.getX(i) * 1e4)},${Math.round(pos.getY(i) * 1e4)},${Math.round(pos.getZ(i) * 1e4)}`;
+            if (byPos.has(k)) uni(i, byPos.get(k)); else byPos.set(k, i);
+          }
+          const nt = idx ? idx.count : n;
+          for (let i = 0; i < nt; i += 3) {
+            const i0 = idx ? idx.getX(i) : i, i1 = idx ? idx.getX(i + 1) : i + 1, i2 = idx ? idx.getX(i + 2) : i + 2;
+            uni(i0, i1); uni(i1, i2);
+          }
+          const boxes = new Map();
+          for (let i = 0; i < n; i++) {
+            const r = find(i);
+            let bx = boxes.get(r);
+            if (!bx) { bx = new THREE.Box3(); boxes.set(r, bx); }
+            bx.expandByPoint(new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)));
+          }
+          const list = [...boxes.values()];
+          compBoxes.set(g.uuid, list);
+          return list;
+        }
+        // DEPTH BAR: at 2 cm voxel resolution "inside the box" still reads
+        // sub-cm authored hugs (sponson lips / fender lines designed mm off
+        // the grouser tips — the fleet was authored to BAND clearance, never
+        // to a shoe standoff, so hug-coincidence is everywhere and visually
+        // fine). The owner's through-plate class penetrates cm-deep. --exact
+        // counts a voxel only when its center sits >= 1.5 cm INSIDE the
+        // undilated shoe metal (beyond quantization noise); the default run
+        // counts inside-or-within-one-voxel (near-contact margin, band-pass
+        // dilate parity). maxDepthM per hit ranks severity.
+        const DEPTH_MIN = 0.015;
+        const boxDepth = (bx, pt) => Math.min(
+          pt.x - bx.min.x, bx.max.x - pt.x,
+          pt.y - bx.min.y, bx.max.y - pt.y,
+          pt.z - bx.min.z, bx.max.z - pt.z);
+        // GEAR-DRESSING EXCLUSION (abrams family-variety round taxonomy,
+        // abrams.js §B4 note): profiles overlay static pad belts/arc pads ON
+        // the shoe envelope by certified design (e.g. the m1a1ha hullCloth
+        // ramp belt riding 2 mm proud of the shoe surface). Per-side gear
+        // meshes already classify lane-local via the x-reach filter, but a
+        // full-width merged BUCKET of such dressing defeats it. Discriminate
+        // by conformance: a candidate whose in-zone surface lies >=70%
+        // within the shoe SHELL (components expanded 3 voxels) is dressing
+        // RIDING the envelope, not a plate being pierced — skipped from
+        // shoeVox but reported under dressingSkipped so nothing hides.
+        const SHELL_M = 3 * V;
+        const shellBoxes = new Map();
+        function shellOf(g) {
+          if (shellBoxes.has(g.uuid)) return shellBoxes.get(g.uuid);
+          const list = componentsOf(g).map((bx) => bx.clone().expandByScalar(SHELL_M));
+          shellBoxes.set(g.uuid, list);
+          return list;
+        }
+        sZones.forEach((zone, zi) => {
+          // live shoe-instance OBB sets intersecting this zone
+          const obbs = [];
+          for (const im of shoeIMs) {
+            const g = im.geometry;
+            if (!g.boundingSphere) g.computeBoundingSphere();
+            const comps = componentsOf(g);
+            const shell = shellOf(g);
+            const R = g.boundingSphere.radius + g.boundingSphere.center.length() + SHELL_M;
+            for (let k = 0; k < im.count; k++) {
+              im.getMatrixAt(k, _im4);
+              if (Math.abs(_im4.determinant()) < 1e-12) continue;
+              _wm4.multiplyMatrices(im.matrixWorld, _im4);
+              _ic.setFromMatrixPosition(_wm4);
+              if (_ic.z + R < zone.z0 || _ic.z - R > zone.z1 || _ic.y + R < sy0 || _ic.y - R > sy1) continue;
+              obbs.push({ inv: _wm4.clone().invert(), comps, shell, cx: _ic.x, cy: _ic.y, cz: _ic.z, r2: R * R });
+            }
+          }
+          // hull candidates: same set + same x-reach filter as the band pass
+          const hits = new Map();
+          const dressed = [];
+          const zoneBox = new THREE.Box3(
+            new THREE.Vector3(-1e3, sy0, zone.z0), new THREE.Vector3(1e3, sy1, zone.z1));
+          const q = new THREE.Vector3();
+          for (const m of meshes) {
+            if (!strict && m.userData?.trackGuard) continue;
+            bbox.setFromObject(m);
+            if (!bbox.intersectsBox(zoneBox)) continue;
+            const reach = Math.min(Math.abs(bbox.min.x), bbox.min.x <= 0 && bbox.max.x >= 0 ? 0 : Math.abs(bbox.max.x));
+            if (!strict && reach > Math.max(0.05, laneInnerX - 0.15)) continue; // legacy lane-local gear skip
+            const set = new Set();
+            sampleTris(m.geometry, m.matrixWorld, zone.z0, zone.z1, sy0, sy1, set, null);
+            let ov = 0; let inShell = 0; let maxDepth = -1;
+            let lo = [1e9, 1e9, 1e9]; let hi = [-1e9, -1e9, -1e9];
+            for (const k of set) {
+              const [x, y, z] = k.split(',').map(Number);
+              const wx = x * V, wy = y * V, wz = z * V; // voxel center, world
+              let depth = -1; let shell = false;
+              for (const ob of obbs) {
+                const dx = wx - ob.cx, dy = wy - ob.cy, dz = wz - ob.cz;
+                if (dx * dx + dy * dy + dz * dz > ob.r2) continue;
+                q.set(wx, wy, wz).applyMatrix4(ob.inv);
+                if (!shell) for (const sb of ob.shell) { if (sb.containsPoint(q)) { shell = true; break; } }
+                for (const cb of ob.comps) {
+                  const d = boxDepth(cb, q);
+                  if (d > depth) depth = d;
+                }
+              }
+              if (shell) inShell++;
+              // depth > 0: inside the undilated metal by that much.
+              // --exact bar: DEPTH_MIN inside; default bar: within one voxel
+              // outside (near-contact) or deeper.
+              const counts = dilate ? depth >= -V : depth >= DEPTH_MIN;
+              if (!counts) continue;
+              ov++;
+              if (depth > maxDepth) maxDepth = depth;
+              lo = [Math.min(lo[0], x), Math.min(lo[1], y), Math.min(lo[2], z)];
+              hi = [Math.max(hi[0], x), Math.max(hi[1], y), Math.max(hi[2], z)];
+            }
+            if (ov > 0) {
+              const rec = {
+                name: m.name || m.parent?.name || '(unnamed)',
+                vox: ov,
+                frac: +(inShell / set.size).toFixed(2),
+                maxDepthM: +maxDepth.toFixed(3),
+                box: [lo.map((v) => +(v * V).toFixed(3)), hi.map((v) => +(v * V).toFixed(3))],
+              };
+              if (!strict && set.size > 0 && inShell / set.size >= 0.7) dressed.push(rec);
+              else hits.set(m.uuid, rec);
+            }
+          }
+          out.zones[zi].shoeVox = [...hits.values()].reduce((s, h) => s + h.vox, 0);
+          out.zones[zi].shoeHits = [...hits.values()].sort((x, y) => y.vox - x.vox).slice(0, 6)
+            .map((h) => ({ mesh: h.name, vox: h.vox, frac: h.frac, maxDepthM: h.maxDepthM, box: h.box }));
+          if (dressed.length) {
+            out.zones[zi].dressingSkipped = dressed.sort((x, y) => y.vox - x.vox).slice(0, 6)
+              .map((h) => ({ mesh: h.name, vox: h.vox, frac: h.frac, maxDepthM: h.maxDepthM, box: h.box }));
+          }
+        });
+      } else {
+        out.shoe = { mode: 'no-live-instances', ims: shoeIMs.length, instances: 0 };
+        for (const z of out.zones) { z.shoeVox = z.overlapVox; z.shoeHits = z.hits; }
+      }
+    } else {
+      // no instanced shoes: the sampled track set is already the outermost
+      // visible surface (hand-rolled trackBucket builds), so the band test
+      // IS the shoe test there.
+      out.shoe = { mode: out.mode !== 'bands' ? 'hand-rolled-surface(=band)' : 'band-only(=band)', ims: 0, instances: 0 };
+      for (const z of out.zones) { z.shoeVox = z.overlapVox; z.shoeHits = z.hits; }
+    }
+    window.__CLIP_RESULT = out; window.__CLIP_READY = true;
+  }
+}
+</script>

@@ -1,0 +1,81 @@
+{
+  "map": "urban",
+  "seed": 8310,
+  "meta": {
+    "id": "challenger2",
+    "name": "Challenger 2",
+    "nation": "United Kingdom",
+    "role": "Main battle tank",
+    "number": 11,
+    "pose": "rear-right-down",
+    "turretDeg": 94,
+    "gunDeg": -6
+  },
+  "actors": [
+    {
+      "id": "challenger2",
+      "name": "hero",
+      "pos": [
+        36,
+        60
+      ],
+      "facingDeg": 180,
+      "turretDeg": 94,
+      "gunDeg": -6,
+      "camo": "urbanblock",
+      "camoSeed": 8310
+    }
+  ],
+  "effects": [
+    {
+      "type": "dust",
+      "at": [
+        34.5,
+        56
+      ],
+      "tMs": 30,
+      "params": {
+        "count": 9,
+        "intensity": 0.72,
+        "dirDeg": 180
+      }
+    },
+    {
+      "type": "explosion_moment",
+      "at": [
+        29,
+        68
+      ],
+      "tMs": 70,
+      "params": {
+        "ageS": 0.42
+      }
+    },
+    {
+      "type": "firing_moment",
+      "actor": "hero",
+      "tMs": 240,
+      "params": {
+        "ageS": 0.055
+      }
+    }
+  ],
+  "camera": {
+    "pos": [
+      44.6,
+      2.4000000000000004,
+      52
+    ],
+    "lookAt": [
+      34,
+      2.5700000000000003,
+      61
+    ],
+    "groundRel": true,
+    "fov": 56,
+    "rollDeg": 0,
+    "mode": "fly"
+  },
+  "fxTime": 280,
+  "timeScale": 0
+}

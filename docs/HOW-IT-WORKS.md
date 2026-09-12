@@ -1,0 +1,394 @@
+# How Claude of Tanks works
+
+This document describes the current game runtime. Historical fleet work and
+quarantined reference assets are outside its scope. A Vite application runs a
+Three.js rendering stack around a deterministic 60 Hz armored-combat
+simulation. Multiplayer transports the same authority model over WebRTC or
+WebSocket without moving gameplay decisions into the renderer.
+
+## Runtime at a glance
+
+```text
+controls ──► 60 Hz authority ──► state + reliable events ──► presentation bridge
+                 │                                          │
+                 ├─ movement / terrain / collision           ├─ first-party tank visuals
+                 ├─ aim / ballistics / armor / modules       ├─ tracks / suspension / effects
+                 ├─ spotting / concealment / bots            ├─ HUD / audio / killcam
+                 └─ destructibles / result                    └─ Three.js renderer / post
+```
+
+Solo composes the authority directly in the browser. LAN and private rooms put
+one trusted browser in charge and carry inputs/state over WebRTC. Ranked puts
+the authority in the dedicated Node service and uses an authenticated,
+reconnectable WebSocket. All modes share the same movement, armor, damage,
+spotting, bot, destructible, and outcome rules.
+
+## Boot, garage, and lazy work
+
+`src/main.ts` owns application composition. The first visible garage frame is
+kept deliberately narrow: renderer, garage, selected vehicle, and essential UI
+arrive first. `fleetFactory.ts` maps each tank id to an import-free ownership
+manifest and downloads only that profile family before its first real build.
+The battlefield constructor is a separate dynamic module; terrain, vegetation,
+structures, and wreck code do not enter the startup graph. During a map build,
+each deterministically selected tank wreck yields once so its exact vehicle
+family can load before baking resumes. Studio and deterministic screenshot
+authoring are the only explicit full-fleet gates. Garage and battle transitions
+remain painted while this asynchronous work proceeds, so low-end hardware sees
+progress instead of a blocked black canvas.
+
+The workshop around the selected vehicle is a separate, demand-loaded scene.
+Ten identities are bound to ten battlefield themes and selected from
+the Staging Area control beside Home and Record. The environment choice is
+persisted independently from the next-battle map. Verdant Motor Pool keeps its
+original enclosed workshop shell, corrugated walls, high-bay fixtures, service
+signage, floor equipment, cables, cones, barrels, and authored industrial
+lighting. The restored stage is the sole Verdant owner; it does not allocate an
+outdoor terrain pack. After the Garage becomes interactive and quiet, one
+shared four-bay service layer streams in across all ten locations: a Burlak
+gantry, Abrams welding bay, T-90M armor station, and rolled K2 teardown occupy
+all four quadrants. Each environment shifts the complete layer slightly around
+its landmark; only Verdant shows the wall-mounted interior props that require
+its enclosed shell. These are full-detail fleet shapes but not player-owned
+vehicles: the worker applies three shared solid national service finishes
+(Russian green, American desert tan, and Korean olive), allocates no camouflage
+or surface-map canvases, and does not transfer colour/UV/tangent attributes that
+the map-free materials cannot read. Signature paint remains exclusive to the
+selected hero and playable fleet.
+
+The other nine choices build compact Garage-only interpretations of their maps.
+They use the battle renderer's real procedural dome, cloud layers, fog, and
+map-specific sun preset; a lightweight sky registry keeps this independent of
+full battlefield loading. Their opening view includes stocked, connected
+maintenance frames before the wider 360-degree service district.
+A 41×37 terrain grid stays flat across the shared service terrace, then carries
+deterministic relief at the perimeter. Rocks and trees are instanced. Each theme
+adds seven connected structures plus maintenance bays on both sides of the hero,
+flood towers, stocked track/wheel racks, tool carts, drums, and crates. Cinder Junction
+is a rail overhaul station with three complete roads, sleepers, platforms,
+canopies, and a nine-bay roundhouse. Tank-shaped low-detail scene-pack proxies
+are forbidden. Instead, one idle-streamed full-detail fleet workshop is shared
+by every Garage: Burlak and Abrams service vehicles, a T-90M turret/gun and
+Relikt rack, plus a supported K2 hull, road wheels, track shoes, skirts, and
+weapon-service hardware. These scenes do not load battle terrain, collision,
+destructibles, services, or animated vegetation.
+Each service island is assembled on one terrain-seated local frame. Exact
+endpoint braces, footings beneath every column, supported roof purlins, crane
+runways and trolleys, powered winches, pipe manifolds, safety rails, service
+pits, benches, and stocked pallets make the machinery physically readable from
+all four Garage quadrants. The nine outdoor packs share only the implementation
+vocabulary: their signature facility remains map-specific (desert shade depot,
+heated winter bay, arsenal magazine, drydock crane, rail roundhouse, monsoon
+drainage shelter, alpine tunnel portal, recovery gantry, or foundry line).
+Any world retained for the next round stays detached and dormant. The archive
+monitor keeps only
+its current and incoming images resident and stops scheduling work while its
+Garage roots are detached for battle.
+
+The selected hero uses authored running gear as its Garage support surface.
+Decorative tow hooks, mud flaps, and other underside attachments may hang below
+that datum, but the track run is placed exactly on the turntable. Gallery and
+battle code retain the conservative all-geometry floor measurement where
+penetration avoidance matters more than presentation contact.
+
+Viewport synchronization also has one typed engine owner. Renderer output,
+camera projection, post targets, and shadow frustums resize together. If an
+embedded or mobile browser initially reports a 0x0 layout, a bounded temporary
+observer repairs the first positive layout automatically and then removes all
+of its recovery work.
+
+Battle hover/focus is a typed intent boundary rather than a collection of UI
+callbacks. It transfers battle-only modules, plans only the next deterministic
+roster, coalesces that roster's texture bakes, and reserves one concrete map
+when the garage shows Random. The click consumes that same map instead of
+rolling again. Covered loading safely drains a partial hover bake before
+repainting map camouflage, then resumes the exact work with a faster frame
+budget behind the opaque loading screen. Tank/map changes and new rounds
+cancel stale intent.
+
+The quality system combines capability checks with a boot-time render probe.
+Resolution, shadows, post effects, texture sizes, vegetation density, and
+background work scale independently. A WebGL target watchdog can disable a
+failing feature and restore output without changing combat behavior.
+
+The battle HUD upgrades its immediately available tactical cartography with a
+small baked WebP for the active map. A typed minimap lifecycle coalesces repeat
+requests and rechecks both active-world identity and prepared world services
+after decode. A late result from a previous map is discarded; an active-map
+load error keeps the existing full-resolution procedural fallback.
+
+Combat effects have a separate typed lifecycle. Battle intent may transfer the
+effects module while the garage remains interactive, but scene objects are not
+created until Battle, Studio, or deterministic capture entry. Concurrent
+consumers share one initializer. A failed chunk transfer or WebGL allocation
+clears only its own in-flight receipt, allowing the next entry attempt to
+recover without reloading the page.
+
+Killcam acquisition follows the same separation without sharing the effects
+owner. Garage and render-loop callers see one stable inactive facade until
+entry completes; the fixed-step solo simulation then receives the direct live
+capture runtime. Chunk and initializer failures remain independently retryable,
+so a lost replay download cannot permanently wedge a later match or capture.
+
+Player actions also cross one typed policy owner. It holds the active shell
+cards and consumable cooldowns, applies repairs and special actions only for
+local authority, and forwards the equivalent commands during network battles.
+Because simulation rules are injected after Battle intent, this consolidation
+does not pull combat code or rendering work back into first-visit garage boot.
+
+The variable-rate frame loop delegates device sampling to a second typed
+owner. It reuses scratch records while combining keyboard, touch, gamepad,
+pointer-lock fallback, zoom, free-look, and sniper state into the existing
+tank and camera input records. Pauses, loading veils, killcams, empty magazines,
+and destroyed players are handled before either authority path sees input.
+
+The browser clock is also isolated from that frame body. One typed scheduler
+coalesces animation-frame requests, explicitly rearms after WebGL restoration,
+and rescues controls in embedded panes that remain interactive while reporting
+themselves hidden. Recovery is focus- and cadence-gated, so background tabs
+stay frozen and a returning animation frame cannot create a second loop.
+
+Rendered tanks cross a separate typed presentation owner. Solo state is
+interpolated between completed 60 Hz steps; multiplayer state is already
+interpolated and locally corrected by its bridge, so it is presented directly
+instead of being smoothed twice. The owner also removes fully hidden opponents
+from traversal, reduces off-screen running-gear detail work, and keeps dust and
+exhaust density fixed across 60, 120, and 240 Hz displays.
+
+## First-party vehicle pipeline
+
+The registry currently retains **156 vehicle records**. The production
+projection exposes **117**; an explicit local-development key unlocks all
+**154 first-party playable models** with `DEV` labels, while two generic
+reference placeholders remain report-only. The generated inventory is
+maintained in `VEHICLE-ROSTER.md`.
+Playable geometry is assembled at runtime from authored profile stations,
+armor forms, fittings, and procedural running gear in
+`src/vehicles/factoryGeometry.ts`, `src/vehicles/tankFactoryCore.ts`,
+`src/vehicles/fleetFactory.ts`, and
+`src/vehicles/profiles/`. Node audits retain the eager `tankFactory.ts` facade;
+the browser runtime uses the demand-loaded facade. The public runtime
+does not swap those vehicles for community GLBs. Historical source assets are
+quarantined comparison material and are stripped from public builds.
+
+Each vehicle spec supplies dimensions, mass, mobility, gun limits, ammunition,
+armor plates, modules, crew, concealment, and render metadata. Texture programs
+paint the selected camouflage, surface breakup, welds, wear, and roughness. The
+same spec drives the garage card, icon set, loading roster, armor logic, bot
+selection, and final visual, which prevents the UI and simulation from quietly
+describing different tanks.
+
+Tracks are not a rigid decoration. The movement state samples terrain support,
+solves hull pitch/roll with suspension damping, and passes wheel/track contact
+to the visual. Links follow the running-gear path, conform over terrain-facing
+road wheels, and scroll from measured hull travel rather than a cosmetic timer.
+
+## World and renderer
+
+Twenty authored battlefields are generated from code. The original eight are
+Verdant Fields, Sirocco Wadi, Frosthollow, Steinburg, Saltmere Bay, Amberford,
+Tarkhan Steppe, and Cinder Junction; Frontier Basin, Nordhavn Fjord, Jade River
+Delta, Redrock Divide, Monsoon Ridge, Glacier Pass, Obsidian Caldera, and
+Ironworks form the second set; Ruinspires, Blackglass District, Titan Gorge,
+and Skybridge Chasm complete the current roster. Each owns a height field, material palette,
+roads, foliage, structures, collision, concealment, destructibles, lighting,
+sky, and minimap. Shared structure, wreck, loose-prop, utility-network,
+terrain-attachment, and destruction systems keep the expanded vocabulary
+consistent, while map-specific composition preserves distinct tactical spaces.
+The browser and dedicated server share generated collision manifests so an
+obstacle is not passable on one authority and solid on another.
+
+Buildings use two bounded authoring paths. Large landmarks add windows,
+reveals, ledges, gutters, downpipes, attached service equipment, roof fittings,
+facade bay piers, framed utility apertures, louvers, and biome-specific trim to
+the existing material buckets before those buckets are merged. Large side-wall
+windows use recessed surrounds and crossed mullions instead of flat dark slabs.
+Lightweight destructible structures use intact and broken
+`InstancedMesh` pools, so adding façade depth or a persistent collapsed frame
+does not add one draw call per building. A bounded deterministic
+`instanceColor` multiplier gives repeated wood, canvas, and metal structures
+individual weathering tones; the packed debris slot inherits the same tint
+when that exact building is destroyed. An authoring-time support graph rejects
+floating fixtures and disconnected landmark parts. The same support receipt is
+created before each lightweight building is merged, proving every intact roof,
+porch, ladder, rack, frame, utility fitting, and grounded accessory reaches a
+wall or physical ground contact. Collision is then captured from the final
+seeded worlds into the dedicated-server manifest.
+
+Wall, roof, stone, wood, straw, canvas, and structural-metal materials use
+color, normal, and a packed linear surface texture (red AO, green roughness).
+Sourced CC0 PBR sets replace the procedural fallback in-place after loading;
+both paths keep the same material bindings. Glass uses the existing environment
+map and restrained clearcoat, while a deterministic minority of window panes
+emit warm light into the renderer's existing bloom path. Tone mapping, bloom,
+environment reflections, warm sun, cool sky fill, and cascaded shadows remain
+central renderer responsibilities rather than per-building effects. The world
+uses PMREM environment response instead of a full-screen SSR pass: at combat
+distance it preserves the intended glass read without adding another
+resolution-dependent reflection traversal to every frame.
+
+The rendering system uses Three.js: a WebGL renderer, procedural sky and PMREM,
+cascaded shadows, atmospheric fog, post-processing, particles, decals, and
+audio. It does not decide whether a shell penetrated or a vehicle was spotted.
+It presents state emitted by the authority.
+
+## Movement and aiming
+
+Movement advances in fixed 1/60-second steps. Engine force, gearing, steering,
+braking, slope response, ground type, map bounds, tank collision, crushable
+props, suspension, and hull attitude are resolved independently of render
+rate. A clamped frame accumulator prevents a stalled/backgrounded tab from
+integrating a giant physics step when it resumes.
+
+The center screen aim ray establishes the requested world point. Turret yaw and
+gun pitch track that point one-to-one within the vehicle's real traverse,
+elevation, depression, and rotation-rate limits. The gun marker shows the
+actual bore solution while the center marker preserves the requested point;
+obstruction and convergence remain visible rather than silently moving the
+shot. Dispersion, movement bloom, travel time, drop, and penetration are then
+resolved from the real muzzle transform.
+
+## Combat authority
+
+The combat path is data-first and renderer-free:
+
+1. The gun validates reload, ammunition, damage state, and physical aim limits.
+2. Ballistics advances the selected AP, APCR, HEAT, HE, or APFSDS shell through
+   time with muzzle velocity, gravity, and distance behavior.
+3. Collision identifies the struck plate or destructible.
+4. Armor resolves impact angle, normalization, ricochet, caliber overmatch,
+   spaced armor, composites, ERA, and penetration roll.
+5. Damage resolves HP, crew, modules, tracks, fuel, fire, ammo rack, and repair
+   state.
+6. The authority emits durable state plus reliable one-shot events for visuals,
+   audio, the shot log, killcam, and results report.
+
+Spotting uses view range, concealment, movement/firing bloom, foliage, and the
+15 m bush rule. Viewer-specific network snapshots omit hidden enemy positions;
+clients do not receive coordinates for vehicles they are not permitted to see.
+
+## Bots
+
+Bots use the same controls, movement limits, spotting, ammunition, armor, and
+damage paths as players. Their seeded openings vary by match, traversability
+planning reads the battlefield, local steering negotiates traffic/obstacles,
+and recovery logic backs out of stalls and replans. The seed keeps test runs
+reproducible without making every public battle follow one memorized route.
+
+## Multiplayer transport and prediction
+
+Protocol v4 carries validated envelopes with sequence, acknowledgement, and
+simulation ticks. A client submits throttle, steering, brake, shell choice,
+fire, explicit consumable action bits, and a bounded yaw/pitch/distance aim
+intent. Keeping distance preserves the same finite center-screen world point
+used by solo play; the former infinite-ray approximation changed close-range
+gun parallax and could lay multiplayer barrels high. The authority still owns
+traverse, elevation/depression, muzzle position, dispersion, hits, damage,
+spotting, and victory.
+
+LAN/private WebRTC splits traffic:
+
+- reliable ordered control: handshake, lobby/room state, combat events, ping,
+  errors, and leave;
+- unordered zero-retransmit state: replaceable live input and 20 Hz snapshots.
+
+Snapshots use compact encoding, acknowledgements, deltas, and periodic
+keyframes. Remote tanks use adaptive buffered interpolation with bounded
+extrapolation. The local tank predicts the shared movement code and replays
+unacknowledged input after authority corrections. Persistent facts—match
+result and destructible revision/state—also exist in snapshots/keyframes, while
+reliable events carry one-shot presentation work exactly once.
+
+## Persistent room and rematch lifecycle
+
+A private or LAN room outlives one battle:
+
+```text
+waiting ──everyone ready──► starting ──load──► playing
+   ▲                                              │
+   └──────── result + readiness reset ◄───────────┘
+```
+
+Protocol-v5 `ROOM_COMMAND` and `ROOM_STATE` messages carry the room's round,
+last result, roster, team, vehicle, equipment, map, and ready state on the
+reliable channel. After a result the same peers remain connected, the room
+returns to waiting, readiness resets, and the next round replaces only the
+simulation authority—not the WebRTC transport. The report shows live
+play-again intent. Closing it returns to the garage without leaving; a compact
+room strip stays under Battle. Readiness locks vehicle/equipment/team changes
+until the player unreadies. Explicit Leave disconnects from the room.
+
+Invite URLs carry the validated six-character room code and a normalized host
+callsign for human presentation. From the first loading frame the recipient
+sees “Join Name’s Game”; after signaling joins, the service-provided host
+identity replaces the URL hint. Room-code-only legacy links remain valid. On
+the same deployed origin, opening the link loads the game and joins after the
+normal boot gate.
+Joined browsers keep that canonical room URL and a stable browser identity.
+Reloading while the host's persistent room is waiting creates a fresh WebRTC
+channel, reattaches the same player identity, and restores the room state;
+vehicle and equipment can then be selected before readying again. An explicit
+Leave clears the room URL. Because private/LAN authority lives in the host's
+browser, reloading the host itself still ends that browser-owned authority;
+host-failover would require migrating authority to another peer or service.
+LAN uses direct Wi-Fi WebRTC and automatic same-origin/local signaling; private
+internet rooms use deployed signaling plus configured ICE/TURN fallback.
+
+## Results, replay, and presentation events
+
+The end report is combat-focused because the game has no currency, XP grind,
+or tech tree. It summarizes outcome, survival, damage, kills, assists, blocked
+damage, spotting contribution, shot efficiency, team roster, and rematch
+readiness. Killcam and shot panels are projections of resolved combat events,
+not a second damage calculation.
+
+Heavy cosmetic bursts are admitted through a bounded presentation queue so
+several remote destructions cannot monopolize one render frame. Critical state
+events apply immediately; smoke, debris, and other expensive effects can be
+staged over subsequent frames without changing the outcome.
+
+## Scene Studio and the 88-frame field archive
+
+Scene Studio (`src/game/studio.ts`) runs a live battlefield with combat AI
+paused. It can place any current vehicle, conform it to terrain, pose turret and
+gun within spec limits, apply camouflage/damage states, fire the game's real
+effects, freeze deterministic time, and capture through the full renderer up
+to the GPU's safe output size.
+
+The landing page, public field manual, Gallery, and Studio use a reproducible
+visual archive rather than hand-retouched art. It leads with 13 owner-selected
+features, then preserves 30 action frames, 30 foreground-led frames, five
+directed Studio keyframes, and ten deterministic game/interface captures. Six
+contact sheets expose all 60 campaign frames in the collection-review pass. The
+generated manifest records map, feature, actors, effects, provenance, grading,
+and review-sheet membership for every public frame:
+
+```bash
+npm run shots:battle:generate
+npm run shots:battle:grade -- --root shots/marketing-battles-r3
+npm run studio:action:render
+npm run showcase:publish
+npm run showcase:check
+```
+
+## Verification
+
+The repository keeps simulation checks in Node, transport/service checks in
+Node and real browsers, render/capture checks in Chromium, and public/private
+build checks in Vite.
+
+```bash
+npm test
+npm run test:net:browser
+npm run tank:native:check
+npm run build
+npm run build:private
+```
+
+For deeper contracts, continue with [FEATURES.md](FEATURES.md),
+[SYSTEMS.md](SYSTEMS.md), [DEVELOPMENT.md](DEVELOPMENT.md),
+[MULTIPLAYER-ARCHITECTURE.md](MULTIPLAYER-ARCHITECTURE.md),
+[PERFORMANCE.md](PERFORMANCE.md), [STUDIO.md](STUDIO.md), and
+[GUNNERY-CAMERA-SPEC.md](GUNNERY-CAMERA-SPEC.md). The original
+[ARCHITECTURE.md](ARCHITECTURE.md) is retained as a historical implementation
+contract rather than the current system map.

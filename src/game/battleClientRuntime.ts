@@ -1,0 +1,49 @@
+export { createAimController } from './aimController.ts';
+export {
+  computeDispersionRadM,
+  shotRecoilScale,
+} from '../sim/movement.ts';
+export {
+  tankPoseFromState,
+  traceTank,
+} from '../sim/armor.ts';
+export {
+  selectShell,
+  resolveShellHit,
+  createCombatState,
+  magazineReloadDenialReason,
+  repairAllModules,
+  startMagazineReload,
+} from '../sim/damage.ts';
+export { createShell } from '../sim/ballistics.ts';
+export {
+  activateSpecialAction,
+  guidedMissileSlot,
+  specialActionKind,
+} from '../sim/specialActions.ts';
+export {
+  hasAmmunition,
+  shellAmmunitionCapacity,
+} from '../sim/ammunition.ts';
+export { isPostwarVehicleEra } from '../vehicles/taxonomy.ts';
+export {
+  cooldownRemaining,
+  resetConsumableCooldowns,
+  startConsumableCooldown,
+} from './consumables.ts';
+export { CONSUMABLE_RULES } from './consumables.ts';
+export {
+  advancePreBattleCountdown,
+  resolveVisiblePreBattleSeconds,
+} from './preBattleCountdown.ts';
+export {
+  advanceTankPresentationPose,
+  createTankPresentationPose,
+  resetTankPresentationPose,
+  sampleTankPresentationPose,
+} from './presentationPose.ts';
+export {
+  mobileAutoAimCenter,
+  pickMobileAutoAimTarget,
+} from './mobileAutoAim.ts';
+export { requestTankSelfRight } from '../sim/rollover.ts';

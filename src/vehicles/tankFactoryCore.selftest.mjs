@@ -1,0 +1,174 @@
+import assert from 'node:assert/strict';
+import {
+  KIT,
+  configureTankFactory,
+  createTank,
+  createTankSteps,
+  registerCanonicalBuilders,
+  registerProfiledBuilders,
+  robustFloorY,
+} from './tankFactoryCore.ts';
+
+function referenceRobustFloorY(values) {
+  const sorted = values.slice().sort((a, b) => a - b);
+  if (sorted.length < 12) return sorted[0];
+  for (let i = 0; i + 11 < sorted.length; i++) {
+    if (sorted[i + 11] - sorted[i] <= 0.015) return sorted[i];
+  }
+  return sorted[0];
+}
+
+assert.equal(robustFloorY([]), undefined);
+assert.equal(robustFloorY([0.2, -0.4, 0.1]), -0.4);
+assert.equal(robustFloorY([
+  ...Array.from({ length: 90 }, (_, i) => -2 + i * 0.02),
+  ...Array.from({ length: 12 }, (_, i) => 0.25 + i * 0.001),
+]), 0.25, 'dense shell beyond the initial prefix remains exact');
+assert.equal(robustFloorY(Array.from({ length: 100 }, (_, i) => i * 0.1)), 0,
+  'an array with no dense shell falls back to its absolute minimum');
+
+let floorSeed = 0x51f15e;
+const floorRandom = () => {
+  floorSeed = (Math.imul(floorSeed, 1664525) + 1013904223) >>> 0;
+  return floorSeed / 0x100000000;
+};
+for (let sample = 0; sample < 80; sample++) {
+  const length = 1 + Math.floor(floorRandom() * 1400);
+  const values = Array.from({ length }, () =>
+    Math.round((floorRandom() * 8 - 4) * 10000) / 10000);
+  assert.equal(robustFloorY(values), referenceRobustFloorY(values),
+    `bounded floor selection matches a full sort for randomized sample ${sample}`);
+}
+
+assert.deepEqual(KIT.grilleIndices(true, 6, 3), [0, 1, 2, 3, 4, 5]);
+assert.deepEqual(KIT.grilleIndices(false, 6, 3), [0, 3, 5]);
+assert.deepEqual(KIT.grilleIndices(false, 4, 8), [0, 1, 2, 3]);
+assert.deepEqual(KIT.grilleIndices(false, 1, 1), [0]);
+assert.strictEqual(
+  KIT.grilleIndices(false, 6, 3),
+  KIT.grilleIndices(false, 6, 3),
+  'low-detail grille samples are cached and immutable',
+);
+assert.throws(() => KIT.grilleIndices(false, 0, 3), RangeError);
+
+const jerryCanParts = [];
+KIT.jerryCan({
+  add() {},
+  addEquipment(bucket, geometry, ...transform) {
+    jerryCanParts.push({ bucket, geometry, transform });
+  },
+}, 'hullDetail', 1, 2, 3, 0.25);
+const jerryCanBodies = jerryCanParts.filter(
+  ({ geometry }) => geometry.userData.designFamily === 'cot-field-jerry-can-v2',
+);
+assert.equal(jerryCanBodies.length, 2, 'the core jerry-can primitive always emits a pair');
+assert.deepEqual(jerryCanBodies.map(({ geometry }) => geometry.userData.pairIndex), [0, 1]);
+assert.ok(jerryCanBodies.every(({ geometry }) => geometry.userData.paired === true));
+assert.ok(jerryCanBodies.every(({ geometry }) => geometry.userData.pairSize === 2));
+assert.notEqual(
+  jerryCanBodies[0].transform[0],
+  jerryCanBodies[1].transform[0],
+  'paired cans occupy distinct seats',
+);
+
+assert.throws(
+  () => createTank('m4a3e8', null, { proceduralOnly: true, geometryReceipt: true }),
+  /Import tankFactory\.ts/,
+  'the internal core rejects use before the public fleet facade configures it',
+);
+assert.throws(
+  () => configureTankFactory({ canonicalBuilderPacks: null, profiledBuilders: {}, fittings: {} }),
+  /canonicalBuilderPacks must be an array/,
+);
+assert.throws(
+  () => configureTankFactory({
+    canonicalBuilderPacks: [['duplicate', { m4a3e8() {} }]],
+    profiledBuilders: {},
+    fittings: {},
+  }),
+  /Duplicate canonical builder m4a3e8/,
+);
+assert.throws(
+  () => configureTankFactory({
+    canonicalBuilderPacks: [],
+    profiledBuilders: { invalid: null },
+    fittings: {},
+  }),
+  /Profiled builder invalid must be a function/,
+);
+assert.throws(
+  () => configureTankFactory({ canonicalBuilderPacks: [], profiledBuilders: {}, fittings: {} }),
+  /Missing tank fitting spareTrackLinks/,
+);
+
+const noOp = () => {};
+configureTankFactory({
+  canonicalBuilderPacks: [],
+  profiledBuilders: {},
+  fittings: { spareTrackLinks: noOp, antennaWhip: noOp, pintleMG: noOp },
+});
+assert.throws(
+  () => registerCanonicalBuilders('invalid', { deferred: null }),
+  /Builder invalid:deferred must be a function/,
+);
+const deferredCanonical = () => {};
+registerCanonicalBuilders('deferred', { deferred: deferredCanonical });
+registerProfiledBuilders({ deferred: () => {} });
+assert.doesNotThrow(
+  () => registerCanonicalBuilders('deferred-retry', { deferred: deferredCanonical }),
+  'a late/retried canonical dependency must not replace a profile override',
+);
+assert.throws(
+  () => configureTankFactory({ canonicalBuilderPacks: [], profiledBuilders: {}, fittings: {} }),
+  /already configured/,
+  'configuration is a one-shot boot gate',
+);
+
+const priorNow = Object.getOwnPropertyDescriptor(performance, 'now');
+let diagnosticClock = 0;
+Object.defineProperty(performance, 'now', {
+  configurable: true, value: () => { diagnosticClock += 0.125; return diagnosticClock; },
+});
+try {
+  for (const staged of [false, true]) {
+    diagnosticClock = 0;
+    const options = { proceduralOnly: true, geometryReceipt: true };
+    let tank, firstCheckpointAt;
+    if (staged) {
+      const steps = createTankSteps('m4a3e8', null, options);
+      let result = steps.next();
+      firstCheckpointAt = diagnosticClock;
+      while (!result.done) { diagnosticClock += 1000; result = steps.next(); }
+      tank = result.value;
+    } else tank = createTank('m4a3e8', null, options);
+    try {
+      assert.equal(tank.root.name, 'tank_m4a3e8');
+      const timing = tank.root.userData.coreBuildTiming;
+      assert.equal(timing.startedAt, 0.125, 'actual core execution starts the exact raw clock receipt');
+      const endpoints = ['startedAt', 'materialsStartedAt', 'materialsFinishedAt',
+        'authoredStartedAt', 'authoredFinishedAt', 'bindMergeFinishedAt', 'finishedAt'];
+      assert.deepEqual(Object.keys(timing).sort(), [...endpoints, 'setupMs'].sort(),
+        'the core publishes a fixed-size receipt, not per-object or per-part rows');
+      for (let index = 1; index < endpoints.length; index++) {
+        assert.ok(timing[endpoints[index]] > timing[endpoints[index - 1]],
+          `${endpoints[index]} preserves actual source stage order`);
+      }
+      const setupMs = (timing.materialsStartedAt - timing.startedAt)
+        + (timing.authoredStartedAt - timing.materialsFinishedAt);
+      assert.equal(timing.setupMs, setupMs, 'startup/setup work is explicit, not omitted from named-stage totals');
+      const materialsMs = timing.materialsFinishedAt - timing.materialsStartedAt;
+      const authoredMs = timing.authoredFinishedAt - timing.authoredStartedAt;
+      const bindMergeMs = timing.bindMergeFinishedAt - timing.authoredFinishedAt;
+      const assemblyMs = timing.finishedAt - timing.bindMergeFinishedAt;
+      assert.equal(setupMs + materialsMs + authoredMs + bindMergeMs + assemblyMs,
+        timing.finishedAt - timing.startedAt, 'non-overlapping stages plus setup account for the complete core interval');
+      if (staged) assert.ok(timing.finishedAt <= firstCheckpointAt,
+        'decoration/finalizer waits never enter the first core-step receipt');
+    } finally { tank.dispose(); }
+  }
+} finally {
+  if (priorNow) Object.defineProperty(performance, 'now', priorNow);
+  else delete performance.now;
+}
+
+console.log('tankFactoryCore.selftest: configuration guards, core builder, exact bounded stage accounting passed');

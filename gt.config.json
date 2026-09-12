@@ -1,0 +1,19 @@
+{
+  "$schema": "https://assets.gtx.dev/config-schema.json",
+  "projectId": "prj_pcdp8m3iftnnkr59wwep6e7k",
+  "defaultLocale": "en-US",
+  "locales": [
+    "zh-CN"
+  ],
+  "requiresReview": true,
+  "options": {
+    "saveLocal": true
+  },
+  "files": {
+    "json": {
+      "include": [
+        "src/ui/i18nCatalog.[locale].json"
+      ]
+    }
+  }
+}

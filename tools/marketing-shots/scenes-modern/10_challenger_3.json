@@ -1,0 +1,82 @@
+{
+  "map": "winter",
+  "seed": 8309,
+  "meta": {
+    "id": "challenger_3",
+    "name": "Challenger 3",
+    "nation": "United Kingdom",
+    "role": "Main battle tank",
+    "number": 10,
+    "pose": "left-elevation",
+    "turretDeg": -30,
+    "gunDeg": 11
+  },
+  "actors": [
+    {
+      "id": "challenger_3",
+      "name": "hero",
+      "pos": [
+        162,
+        -78
+      ],
+      "facingDeg": 205,
+      "turretDeg": -30,
+      "gunDeg": 11,
+      "camo": "winter",
+      "camoSeed": 8309
+    }
+  ],
+  "effects": [
+    {
+      "type": "dust",
+      "at": [
+        160.5,
+        -82
+      ],
+      "tMs": 30,
+      "params": {
+        "count": 9,
+        "intensity": 0.72,
+        "dirDeg": 205
+      }
+    },
+    {
+      "type": "exhaust",
+      "actor": "hero",
+      "tMs": 110,
+      "params": {
+        "count": 8,
+        "intensity": 0.65,
+        "sooty": true
+      }
+    },
+    {
+      "type": "armor_scar",
+      "actor": "hero",
+      "tMs": 180,
+      "params": {
+        "count": 2,
+        "caliberMm": 90,
+        "seedDeg": 99
+      }
+    }
+  ],
+  "camera": {
+    "pos": [
+      168.2,
+      0.8999999999999999,
+      -87.6
+    ],
+    "lookAt": [
+      161,
+      2.8000000000000003,
+      -77
+    ],
+    "groundRel": true,
+    "fov": 52,
+    "rollDeg": 0,
+    "mode": "fly"
+  },
+  "fxTime": 280,
+  "timeScale": 0
+}

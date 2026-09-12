@@ -1,0 +1,262 @@
+/**
+ * Pure deterministic cloud texture bakes. This module intentionally has no
+ * DOM or Three.js dependency so the expensive FBM work can run in a worker.
+ */
+
+/** Deterministic PRNG (Mulberry32). */
+type Color3 = readonly [number, number, number];
+type RandomSource = () => number;
+type NoiseSampler = (u: number, v: number) => number;
+
+export interface CumulusBakeConfig {
+  seed: number;
+  warp: number;
+  macroAniso: number;
+  threshold: number;
+  cluster: number;
+  edge: number;
+  edgeWisp: number;
+  coreWidth: number;
+  marchSteps: number;
+  marchStepPx: number;
+  shadeK: number;
+  lit: Color3;
+  shade: Color3;
+  silver: number;
+  detailAmp: number;
+  alphaVariation: number;
+  maxAlpha: number;
+}
+
+export interface CirrusBakeConfig {
+  seed: number;
+}
+
+function mulberry32(a: number): RandomSource {
+  return function next(): number {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Build a period-one value-noise FBM sampler in both axes. */
+function makeFbm(rng: RandomSource, octaves: number, base: number): NoiseSampler {
+  const lattices: Array<{ n: number; grid: Float32Array }> = [];
+  for (let o = 0; o < octaves; o++) {
+    const n = base << o;
+    const grid = new Float32Array(n * n);
+    for (let i = 0; i < grid.length; i++) grid[i] = rng();
+    lattices.push({ n, grid });
+  }
+  const smooth = (t: number): number => t * t * (3 - 2 * t);
+  return function fbm(u: number, v: number): number {
+    let sum = 0;
+    let amp = 0.55;
+    let tot = 0;
+    for (let o = 0; o < octaves; o++) {
+      const { n, grid } = lattices[o]!;
+      let uu = (u + o * 0.37) % 1;
+      if (uu < 0) uu += 1;
+      let vv = (v + o * 0.61) % 1;
+      if (vv < 0) vv += 1;
+      const x = uu * n;
+      const y = vv * n;
+      const x0 = Math.floor(x);
+      const y0 = Math.floor(y);
+      const fx = smooth(x - x0);
+      const fy = smooth(y - y0);
+      const xa = x0 % n;
+      const xb = (x0 + 1) % n;
+      const ya = y0 % n;
+      const yb = (y0 + 1) % n;
+      const g00 = grid[ya * n + xa]!;
+      const g10 = grid[ya * n + xb]!;
+      const g01 = grid[yb * n + xa]!;
+      const g11 = grid[yb * n + xb]!;
+      sum += (g00 + (g10 - g00) * fx + (g01 - g00) * fy
+        + (g00 - g10 - g01 + g11) * fx * fy) * amp;
+      tot += amp;
+      amp *= 0.5;
+    }
+    return sum / tot;
+  };
+}
+
+function clampNum(x: number, lo: number, hi: number): number {
+  return x < lo ? lo : (x > hi ? hi : x);
+}
+
+function smoothstepNum(a: number, b: number, x: number): number {
+  const t = clampNum((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+interface CumulusSamplers {
+  fbmD: NoiseSampler;
+  fbmWX: NoiseSampler;
+  fbmWY: NoiseSampler;
+  fbmM: NoiseSampler;
+  fbmHF: NoiseSampler;
+}
+
+interface CumulusFields {
+  mask: Float32Array;
+  core: Float32Array;
+  sigma: Float32Array;
+}
+
+function fillCumulusFields(
+  width: number,
+  height: number,
+  config: CumulusBakeConfig,
+  samplers: CumulusSamplers,
+): CumulusFields {
+  const { warp, macroAniso, threshold, cluster, edge, edgeWisp, coreWidth } = config;
+  const { fbmD, fbmWX, fbmWY, fbmM } = samplers;
+  const mask = new Float32Array(width * height);
+  const core = new Float32Array(width * height);
+  const sigma = new Float32Array(width * height);
+  for (let y = 0; y < height; y++) {
+    const v = y / height;
+    for (let x = 0; x < width; x++) {
+      const u = x / width;
+      let wu = (u + (fbmWX(u, v) - 0.5) * warp) % 1;
+      if (wu < 0) wu += 1;
+      let wv = (v + (fbmWY(u, v) - 0.5) * warp) % 1;
+      if (wv < 0) wv += 1;
+      const d = fbmD(wu, wv);
+      const mac = fbmM(u, (v * macroAniso) % 1);
+      const thresholdAtPoint = threshold + (mac - 0.5) * 2 * cluster;
+      const index = y * width + x;
+      const edgeWidth = edge + edgeWisp * (1 - smoothstepNum(0.35, 0.62, mac));
+      // Let the same periodic billow field model body depth. Sampling a
+      // quarter-domain HF field broke periodicity at the texture edge and
+      // added an independent noise veil over coherent cloud bodies. Fine rim
+      // erosion remains in shadeCumulusPixels, with one fewer FBM sample here.
+      const density = smoothstepNum(thresholdAtPoint, thresholdAtPoint + edgeWidth, d)
+        * (0.72 + 0.28 * smoothstepNum(0.30, 0.80, d));
+      const coreDensity = smoothstepNum(
+        thresholdAtPoint + edgeWidth,
+        thresholdAtPoint + edgeWidth + coreWidth,
+        d,
+      );
+      mask[index] = density;
+      core[index] = coreDensity;
+      sigma[index] = density * (0.3 + 0.7 * coreDensity);
+    }
+  }
+  return { mask, core, sigma };
+}
+
+function shadeCumulusPixels(
+  width: number,
+  height: number,
+  config: CumulusBakeConfig,
+  samplers: Pick<CumulusSamplers, 'fbmM' | 'fbmHF'>,
+  fields: CumulusFields,
+): Uint8ClampedArray {
+  const {
+    macroAniso, marchSteps, marchStepPx, shadeK, lit, shade, silver,
+    detailAmp, alphaVariation, maxAlpha,
+  } = config;
+  const { fbmM, fbmHF } = samplers;
+  const { mask, core, sigma } = fields;
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const index = y * width + x;
+      const offset = index * 4;
+      const density = mask[index]!;
+      if (density <= 0) {
+        pixels[offset + 3] = 0;
+        continue;
+      }
+      let occlusion = 0;
+      for (let step = 1; step <= marchSteps; step++) {
+        let sampleY = (y - step * marchStepPx) % height;
+        if (sampleY < 0) sampleY += height;
+        occlusion += sigma[sampleY * width + x]!;
+      }
+      const light = Math.pow(Math.exp(-shadeK * occlusion), 0.85);
+      const coreValue = core[index]!;
+      const silverLine = 1 + silver * (1 - coreValue) * light;
+      pixels[offset] = Math.min(255, Math.round(255
+        * (shade[0] + (lit[0] - shade[0]) * light) * silverLine));
+      pixels[offset + 1] = Math.min(255, Math.round(255
+        * (shade[1] + (lit[1] - shade[1]) * light) * silverLine));
+      pixels[offset + 2] = Math.min(255, Math.round(255
+        * (shade[2] + (lit[2] - shade[2]) * light) * silverLine * 0.97));
+      const macroAlpha = 1 - alphaVariation
+        * (1 - fbmM(x / width, ((y / height) * macroAniso) % 1));
+      const detailAlpha = 1 - detailAmp * (1 - coreValue) * fbmHF(x / width, y / height);
+      pixels[offset + 3] = Math.round(255 * maxAlpha * macroAlpha * detailAlpha * density
+        * (0.30 + 0.70 * coreValue));
+    }
+  }
+  return pixels;
+}
+
+/** Return the exact RGBA bytes for the low cumulus deck. */
+export function bakeCumulusPixels(
+  width: number,
+  height: number,
+  config: CumulusBakeConfig,
+): Uint8ClampedArray {
+  const {
+    seed,
+  } = config;
+  const rng = mulberry32(seed);
+  const fbmD = makeFbm(rng, 6, 8);
+  const fbmWX = makeFbm(rng, 3, 5);
+  const fbmWY = makeFbm(rng, 3, 5);
+  const fbmM = makeFbm(rng, 2, 3);
+  const fbmHF = makeFbm(rng, 3, 48);
+
+  const samplers = { fbmD, fbmWX, fbmWY, fbmM, fbmHF };
+  const fields = fillCumulusFields(width, height, config, samplers);
+  return shadeCumulusPixels(width, height, config, samplers, fields);
+}
+
+/** Return the exact RGBA bytes for the high cirrus deck. */
+export function bakeCirrusPixels(
+  width: number,
+  height: number,
+  config: CirrusBakeConfig,
+): Uint8ClampedArray {
+  const { seed } = config;
+  const rng = mulberry32(seed + 11);
+  const fbm = makeFbm(rng, 4, 4);
+  const fbmW = makeFbm(rng, 2, 3);
+  const fbmB = makeFbm(rng, 2, 2);
+  const fbmE = makeFbm(rng, 3, 14);
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  const litColor: Color3 = [1.0, 0.99, 0.955];
+  const shadeColor: Color3 = [0.66, 0.72, 0.85];
+  for (let y = 0; y < height; y++) {
+    const v = y / height;
+    for (let x = 0; x < width; x++) {
+      const u = x / width;
+      let wu = (u + (fbmW(u, v) - 0.5) * 0.16 + (fbmE(u, v) - 0.5) * 0.06) % 1;
+      if (wu < 0) wu += 1;
+      const sv = (v * 3) % 1;
+      const s = fbm(wu, sv);
+      const bank = smoothstepNum(0.34, 0.60, fbmB(u, v));
+      const a = smoothstepNum(0.56, 0.88, s) * bank
+        * (0.62 + 0.38 * smoothstepNum(0.3, 0.7, fbmE(u + 0.31, v + 0.57)));
+      const s2 = fbm(wu, (sv + 0.018) % 1);
+      const light = clampNum((s - s2) * 9 + 0.55, 0, 1);
+      const o = (y * width + x) * 4;
+      pixels[o] = Math.round(255
+        * (shadeColor[0] + (litColor[0] - shadeColor[0]) * light));
+      pixels[o + 1] = Math.round(255
+        * (shadeColor[1] + (litColor[1] - shadeColor[1]) * light));
+      pixels[o + 2] = Math.round(255
+        * (shadeColor[2] + (litColor[2] - shadeColor[2]) * light));
+      pixels[o + 3] = Math.round(255 * a * 0.6);
+    }
+  }
+  return pixels;
+}

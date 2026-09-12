@@ -1,0 +1,611 @@
+import type { RuntimeValue } from '../runtimeTypes.ts';
+import type { WebGLRenderer } from 'three';
+import type { InputLayer } from '../game/input.ts';
+
+// Bounded gameplay/performance flight recorder. Development enables it by
+// default; optimized production builds load it only for the explicit
+// `?debug=1` device-QA path selected in main.ts.
+//
+// Event objects are bounded and frames use typed columns so the recorder does
+// not manufacture the GC stalls it is meant to find. Normal production never
+// imports this module and therefore installs no observers/listeners.
+
+type TraceRenderer = Pick<WebGLRenderer, 'getContext' | 'info' | 'domElement'>;
+
+interface TraceGame {
+  phase?: string;
+  timeS?: number;
+  preBattleS?: number;
+  result?: RuntimeValue;
+  player?: { input?: { throttle?: number; steer?: number; fire?: boolean } } | null;
+}
+
+type TraceInput = Pick<InputLayer, 'actionDefs' | 'onAction'>;
+
+interface TraceContext {
+  paused?: boolean;
+  killcam?: boolean;
+  shotMode?: boolean;
+  studio?: boolean;
+  renderScale?: number;
+  [key: string]: RuntimeValue;
+}
+
+interface TraceRefs {
+  renderer?: TraceRenderer;
+  game?: TraceGame;
+  input?: TraceInput;
+  getContext?: () => TraceContext;
+  getTelemetry?: () => RuntimeValue;
+  [key: string]: RuntimeValue;
+}
+
+export interface DevTraceOptions {
+  enabled?: boolean;
+  now?: () => number;
+  eventCapacity?: number;
+  frameCapacity?: number;
+  traceMode?: string;
+  renderer?: TraceRenderer;
+}
+
+interface TraceEventRow {
+  seq: number;
+  tMs: number;
+  kind: string;
+  name: string;
+  phase: string;
+  simS: number | null;
+  data: RuntimeValue;
+}
+
+interface RingBuffer<T> {
+  push(value: T): void;
+  ordered(): T[];
+  clear(): void;
+  readonly size: number;
+  readonly dropped: number;
+}
+
+interface TraceSnapshotOptions {
+  gpu?: boolean;
+  frames?: boolean;
+  events?: boolean;
+}
+
+interface TraceGpuInfo {
+  vendor: RuntimeValue;
+  renderer: RuntimeValue;
+  version: RuntimeValue;
+  maxTextureSize: RuntimeValue;
+}
+
+interface LongTaskAttribution {
+  name?: string;
+  containerType?: string;
+  containerName?: string;
+  containerSrc?: string;
+}
+
+interface LongTaskEntry extends PerformanceEntry {
+  attribution?: LongTaskAttribution[];
+}
+
+declare global {
+  interface Window {
+    __DEV_TRACE?: RuntimeValue;
+    __QA_TRACE?: RuntimeValue;
+  }
+  interface Navigator { deviceMemory?: number }
+  interface Performance { memory?: { usedJSHeapSize: number } }
+}
+
+const VITE_DEV = !!import.meta.env?.DEV;
+export const DEV_TRACE_ACTIVE = typeof window !== 'undefined' && VITE_DEV;
+
+const PHASES = ['unknown', 'garage', 'battle', 'ended', 'shot', 'studio'];
+const PHASE_CODE = new Map(PHASES.map((name, i) => [name, i]));
+const FRAME_SCHEMA = [
+  'tMs', 'gapMs', 'dtMs', 'simS', 'preBattleS', 'phase', 'flags',
+  'renderFrame', 'calls', 'triangles', 'programs', 'geometries', 'textures',
+  'heapMB', 'renderScale', 'throttle', 'steer', 'fire',
+];
+const FLAGS = {
+  hidden: 1 << 0, unfocused: 1 << 1, paused: 1 << 2, countdown: 1 << 3,
+  result: 1 << 4, killcam: 1 << 5, shot: 1 << 6, studio: 1 << 7,
+};
+
+const defaultNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+function isRecord(value: RuntimeValue): value is Record<string, RuntimeValue> {
+  return typeof value === 'object' && value !== null;
+}
+
+function finiteNumber(value: RuntimeValue, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function ring<T>(capacity: number): RingBuffer<T> {
+  const values: Array<T | undefined> = new Array(capacity);
+  let next = 0, size = 0, dropped = 0;
+  return {
+    push(value: T): void {
+      if (size === capacity) dropped++; else size++;
+      values[next] = value;
+      next = (next + 1) % capacity;
+    },
+    ordered(): T[] {
+      const out: T[] = new Array(size);
+      const start = size === capacity ? next : 0;
+      for (let i = 0; i < size; i++) out[i] = values[(start + i) % capacity] as T;
+      return out;
+    },
+    clear() { values.fill(undefined); next = size = dropped = 0; },
+    get size() { return size; },
+    get dropped() { return dropped; },
+  };
+}
+
+// Bus hot paths reuse payload objects, so snapshot immediately at emit time.
+function errorMessage(error: RuntimeValue): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function cloneArrayLikeSafe(value: ArrayLike<RuntimeValue>, depth: number, seen: WeakSet<object>): RuntimeValue[] {
+  const length = Number(value.length) || 0;
+  const copiedLength = Math.min(length, 64);
+  const out: RuntimeValue[] = Array.from(
+    { length: copiedLength },
+    (_, index) => cloneSafe(value[index], depth + 1, seen),
+  );
+  if (length > copiedLength) out.push(`[+${length - copiedLength} items]`);
+  return out;
+}
+
+function cloneRecordSafe(
+  value: Record<string, RuntimeValue>,
+  depth: number,
+  seen: WeakSet<object>,
+): Record<string, RuntimeValue> {
+  const out: Record<string, RuntimeValue> = {};
+  const keys = Object.keys(value);
+  for (const key of keys.slice(0, 40)) {
+    try { out[key] = cloneSafe(value[key], depth + 1, seen); }
+    catch (error) { out[key] = `[unreadable: ${errorMessage(error)}]`; }
+  }
+  if (keys.length > 40) out.__truncatedKeys = keys.length - 40;
+  return out;
+}
+
+function cloneSafe(value: RuntimeValue, depth = 0, seen = new WeakSet<object>()): RuntimeValue {
+  if (value == null || ['string', 'boolean'].includes(typeof value)) return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : String(value);
+  if (typeof value === 'bigint') return `${value}n`;
+  if (typeof value === 'function') return `[Function ${value.name || 'anonymous'}]`;
+  if (typeof value !== 'object') return String(value);
+  if (seen.has(value)) return '[Circular]';
+  if (depth >= 4) return `[${value.constructor?.name || 'Object'}]`;
+  seen.add(value);
+  if (Array.isArray(value) || ArrayBuffer.isView(value)) {
+    return cloneArrayLikeSafe(value as ArrayLike<RuntimeValue>, depth, seen);
+  }
+  if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack || '' };
+  return cloneRecordSafe(value as Record<string, RuntimeValue>, depth, seen);
+}
+
+// Room snapshots contain full equipment/camouflage/player records. The live
+// 7v7 probe only needs lifecycle evidence, and deep-cloning fourteen complete
+// records inside the event hook can itself become the stall being measured.
+function traceEventPayload(name: string, data: RuntimeValue): RuntimeValue {
+  if (name !== 'network:roomState' || !isRecord(data) || !isRecord(data.state)) return data;
+  const state = data.state;
+  const players = Array.isArray(state.players) ? state.players : [];
+  return {
+    playerId: typeof data.playerId === 'string' ? data.playerId : '',
+    role: typeof data.role === 'string' ? data.role : '',
+    state: {
+      roomCode: typeof state.roomCode === 'string' ? state.roomCode : '',
+      mode: typeof state.mode === 'string' ? state.mode : '',
+      phase: typeof state.phase === 'string' ? state.phase : '',
+      revision: finiteNumber(state.revision, 0),
+      round: finiteNumber(state.round, 0),
+      lastResult: state.lastResult || null,
+      playerCount: players.length,
+      readyCount: players.reduce<number>(
+        (count, player) => count + (isRecord(player) && player.ready ? 1 : 0), 0,
+      ),
+      connectedCount: players.reduce(
+        (count, player) => count + (!isRecord(player) || player.connected !== false ? 1 : 0), 0,
+      ),
+    },
+  };
+}
+
+function inert() {
+  const noop = (..._args: RuntimeValue[]) => {};
+  return {
+    enabled: false, active: false, event: noop, action: noop, frame: noop,
+    mark: noop, configure: noop, clear: noop, start: noop, stop: noop, dispose: noop,
+    console: noop, download: () => null, exportJson: () => '{}', tail: () => [],
+    snapshot: () => ({ enabled: false }), stats: () => ({ enabled: false }),
+  };
+}
+
+function gpuInfo(renderer: TraceRenderer | undefined): TraceGpuInfo | null {
+  try {
+    const gl = renderer?.getContext?.();
+    if (!gl) return null;
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    return {
+      vendor: ext ? gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR),
+      renderer: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+      version: gl.getParameter(gl.VERSION),
+      maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+    };
+  } catch (_) { return null; }
+}
+
+const pct = (a: ArrayLike<number>, q: number): number => (
+  a.length ? a[Math.min(a.length - 1, Math.floor(a.length * q))] : 0
+);
+
+/** Injectable core is exported for the node selftest. */
+export function createDevTraceCore(options: DevTraceOptions = {}) {
+  if (!(options.enabled ?? DEV_TRACE_ACTIVE)) return inert();
+  const now = options.now || defaultNow;
+  const eventCap = options.eventCapacity || 20000;
+  const frameCap = options.frameCapacity || 72000; // 20 min at 60 fps
+  const events = ring<TraceEventRow>(eventCap);
+  const f = {
+    t: new Float64Array(frameCap), gap: new Float32Array(frameCap), dt: new Float32Array(frameCap),
+    sim: new Float32Array(frameCap), pre: new Float32Array(frameCap), phase: new Uint8Array(frameCap),
+    flags: new Uint16Array(frameCap), renderFrame: new Uint32Array(frameCap),
+    calls: new Uint32Array(frameCap), tris: new Uint32Array(frameCap), programs: new Uint16Array(frameCap),
+    geometries: new Uint16Array(frameCap), textures: new Uint16Array(frameCap),
+    heap: new Float32Array(frameCap), renderScale: new Float32Array(frameCap), throttle: new Float32Array(frameCap),
+    steer: new Float32Array(frameCap), fire: new Uint8Array(frameCap),
+  };
+  const startedPerf = now(), startedWall = Date.now();
+  const traceMode = options.traceMode || (VITE_DEV ? 'development' : 'qa');
+  let traceZero = startedPerf;
+  const sessionId = `${startedWall.toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  const counts: Record<string, number> = Object.create(null);
+  let refs: TraceRefs = options.renderer ? { renderer: options.renderer } : {};
+  let active = true, consoleAll = false, inputBound = false;
+  let disposed = false;
+  const cleanup: Array<() => void> = [];
+  let seq = 0, eventNext = 0, lastEventName = '';
+  let gpuCaptured = false, cachedGpu: TraceGpuInfo | null = null;
+  let frameNext = 0, frameSize = 0, frameDropped = 0, lastFrameAt = 0;
+  let maxGap = 0, spikes = 0, freezes = 0, liveSpikes = 0, liveFreezes = 0;
+  let longTasks = 0, longTaskMs = 0;
+  let lastPhase = 'unknown', lastSim = NaN, lastSimAt = 0, simFrozenAt = 0;
+  let lastRender = -1, lastRenderAt = 0, renderFrozenAt = 0;
+
+  const rel = (t = now()) => +(t - traceZero).toFixed(3);
+  function push(kind: string, name: string, data: RuntimeValue, at = now()): TraceEventRow | null {
+    if (!active) return null;
+    const row = {
+      seq: ++seq, tMs: rel(at), kind, name,
+      phase: refs.game?.phase || lastPhase,
+      simS: typeof refs.game?.timeS === 'number' && Number.isFinite(refs.game.timeS)
+        ? +refs.game.timeS.toFixed(4) : null,
+      data: cloneSafe(data),
+    };
+    events.push(row);
+    if (kind === 'bus') {
+      eventNext = row.seq; lastEventName = name; counts[name] = (counts[name] || 0) + 1;
+    }
+    if (consoleAll) console.info(`[COT trace ${row.tMs}ms] ${kind}:${name}`, row.data);
+    return row;
+  }
+  function anomaly(name: string, data: Record<string, RuntimeValue>, at = now()): TraceEventRow | null {
+    return push('anomaly', name, { ...data, lastEventSeq: eventNext, lastEventName }, at);
+  }
+  function context(): TraceContext {
+    try { return refs.getContext?.() || {}; }
+    catch (error) { return { contextError: errorMessage(error) }; }
+  }
+  function flagBits(game: TraceGame | undefined, ctx: TraceContext): number {
+    let bits = 0;
+    if (typeof document !== 'undefined' && document.hidden) bits |= FLAGS.hidden;
+    if (typeof document !== 'undefined' && document.hasFocus && !document.hasFocus()) bits |= FLAGS.unfocused;
+    if (ctx.paused) bits |= FLAGS.paused;
+    if (typeof game?.preBattleS === 'number' && Number.isFinite(game.preBattleS)
+      && game.preBattleS > 0) bits |= FLAGS.countdown;
+    if (game?.result) bits |= FLAGS.result;
+    if (ctx.killcam) bits |= FLAGS.killcam;
+    if (ctx.shotMode) bits |= FLAGS.shot;
+    if (ctx.studio) bits |= FLAGS.studio;
+    return bits;
+  }
+
+  function storeFrameSample(
+    at: number,
+    gap: number,
+    dtMs: number,
+    phase: string,
+    sim: number,
+    pre: number,
+    bits: number,
+    renderFrame: number,
+    game: TraceGame | undefined,
+    ctx: TraceContext,
+  ): void {
+    const info = refs.renderer?.info;
+    const input = game?.player?.input;
+    const index = frameNext;
+    f.t[index] = rel(at); f.gap[index] = gap; f.dt[index] = dtMs; f.sim[index] = sim; f.pre[index] = pre;
+    f.phase[index] = PHASE_CODE.get(phase) ?? 0; f.flags[index] = bits; f.renderFrame[index] = renderFrame;
+    f.calls[index] = info?.render?.calls || 0; f.tris[index] = info?.render?.triangles || 0;
+    f.programs[index] = Math.min((info?.programs || []).length, 65535);
+    f.geometries[index] = Math.min(info?.memory?.geometries || 0, 65535);
+    f.textures[index] = Math.min(info?.memory?.textures || 0, 65535);
+    f.heap[index] = typeof performance !== 'undefined' && performance.memory
+      ? performance.memory.usedJSHeapSize / 1048576 : -1;
+    f.renderScale[index] = finiteNumber(ctx.renderScale, -1);
+    f.throttle[index] = Number(input?.throttle) || 0;
+    f.steer[index] = Number(input?.steer) || 0;
+    f.fire[index] = input?.fire ? 1 : 0;
+    if (frameSize === frameCap) frameDropped++; else frameSize++;
+    frameNext = (frameNext + 1) % frameCap;
+  }
+
+  function recordGapAnomaly(
+    gap: number,
+    dtMs: number,
+    phase: string,
+    sim: number,
+    renderFrame: number,
+    live: boolean,
+    bits: number,
+    at: number,
+  ): void {
+    const hidden = !!(bits & (FLAGS.hidden | FLAGS.unfocused));
+    if (gap >= 250) {
+      freezes++;
+      if (live) liveFreezes++;
+      anomaly(hidden ? 'frame:hidden-gap' : 'screen:freeze', {
+        gapMs: +gap.toFixed(2), dtMs, phase, simS: sim, renderFrame,
+        live, result: !!(bits & FLAGS.result), killcam: !!(bits & FLAGS.killcam),
+      }, at);
+      return;
+    }
+    if (gap < 50) return;
+    spikes++;
+    if (live) liveSpikes++;
+    anomaly(hidden ? 'frame:hidden-spike' : 'frame:spike', {
+      gapMs: +gap.toFixed(2), dtMs, phase, simS: sim, renderFrame,
+      live, result: !!(bits & FLAGS.result), killcam: !!(bits & FLAGS.killcam),
+    }, at);
+  }
+
+  function resetFreezeTracking(phase: string, sim: number, renderFrame: number, at: number): void {
+    lastPhase = phase; lastSim = sim; lastSimAt = at; simFrozenAt = 0;
+    lastRender = renderFrame; lastRenderAt = at; renderFrozenAt = 0;
+  }
+
+  function trackSimulationFreeze(sim: number, at: number): void {
+    if (!Number.isFinite(lastSim) || sim > lastSim + 1e-6) {
+      if (simFrozenAt) anomaly('sim:resume', { frozenMs: +(at - simFrozenAt).toFixed(2), simS: sim }, at);
+      lastSim = sim; lastSimAt = at; simFrozenAt = 0;
+    } else if (!simFrozenAt && at - lastSimAt >= 750) {
+      simFrozenAt = lastSimAt;
+      anomaly('sim:freeze', { frozenMs: +(at - lastSimAt).toFixed(2), simS: sim }, at);
+    }
+  }
+
+  function trackRenderFreeze(renderFrame: number, at: number): void {
+    if (renderFrame !== lastRender) {
+      if (renderFrozenAt) anomaly('render:resume', { frozenMs: +(at - renderFrozenAt).toFixed(2), renderFrame }, at);
+      lastRender = renderFrame; lastRenderAt = at; renderFrozenAt = 0;
+    } else if (!renderFrozenAt && at - lastRenderAt >= 750) {
+      renderFrozenAt = lastRenderAt;
+      anomaly('render:freeze', { frozenMs: +(at - lastRenderAt).toFixed(2), renderFrame }, at);
+    }
+  }
+
+  function frame(dtMs = 0) {
+    if (!active) return;
+    const at = now();
+    const gap = lastFrameAt ? Math.max(0, at - lastFrameAt) : Math.max(0, dtMs);
+    lastFrameAt = at; maxGap = Math.max(maxGap, gap);
+    const game = refs.game, ctx = context();
+    const phase = ctx.studio ? 'studio' : (game?.phase || 'unknown');
+    const sim = finiteNumber(game?.timeS, 0);
+    const pre = finiteNumber(game?.preBattleS, -1);
+    const bits = flagBits(game, ctx);
+    const live = phase === 'battle' && pre <= 0 && !(bits &
+      (FLAGS.hidden | FLAGS.unfocused | FLAGS.paused | FLAGS.result | FLAGS.killcam));
+    const renderFrame = refs.renderer?.info?.render?.frame || 0;
+    storeFrameSample(at, gap, dtMs, phase, sim, pre, bits, renderFrame, game, ctx);
+    recordGapAnomaly(gap, dtMs, phase, sim, renderFrame, live, bits, at);
+
+    if (phase !== lastPhase || !live) {
+      resetFreezeTracking(phase, sim, renderFrame, at);
+      return;
+    }
+    trackSimulationFreeze(sim, at);
+    trackRenderFreeze(renderFrame, at);
+  }
+  function rows() {
+    const out = new Array(frameSize), start = frameSize === frameCap ? frameNext : 0;
+    for (let n = 0; n < frameSize; n++) {
+      const i = (start + n) % frameCap;
+      out[n] = [
+        +f.t[i].toFixed(3), +f.gap[i].toFixed(3), +f.dt[i].toFixed(3), +f.sim[i].toFixed(4),
+        +f.pre[i].toFixed(3), PHASES[f.phase[i]], f.flags[i], f.renderFrame[i], f.calls[i],
+        f.tris[i], f.programs[i], f.geometries[i], f.textures[i], +f.heap[i].toFixed(2),
+        +f.renderScale[i].toFixed(3), +f.throttle[i].toFixed(3), +f.steer[i].toFixed(3), f.fire[i],
+      ];
+    }
+    return out;
+  }
+  function stats() {
+    const gaps = new Array(frameSize), start = frameSize === frameCap ? frameNext : 0;
+    for (let n = 0; n < frameSize; n++) gaps[n] = f.gap[(start + n) % frameCap];
+    gaps.sort((a, b) => a - b);
+    return {
+      enabled: true, active, traceMode, sessionId, durationMs: rel(), frames: frameSize,
+      framesDropped: frameDropped, events: events.size, eventsDropped: events.dropped,
+      eventCounts: { ...counts }, gapP50: +pct(gaps, .5).toFixed(3),
+      gapP95: +pct(gaps, .95).toFixed(3), gapP99: +pct(gaps, .99).toFixed(3),
+      maxGapMs: +maxGap.toFixed(3), spikes, freezes, liveSpikes, liveFreezes, longTasks,
+      longTaskMs: +longTaskMs.toFixed(3), consoleAll,
+    };
+  }
+  function environment(includeGpu = true) {
+    const nav: Navigator | null = typeof navigator !== 'undefined' ? navigator : null;
+    if (includeGpu && !gpuCaptured) {
+      cachedGpu = gpuInfo(refs.renderer);
+      gpuCaptured = true;
+    }
+    return {
+      url: typeof location !== 'undefined' ? location.href : '', userAgent: nav?.userAgent || '',
+      platform: nav?.platform || '', hardwareConcurrency: nav?.hardwareConcurrency ?? null,
+      deviceMemoryGB: nav?.deviceMemory ?? null,
+      dpr: typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : null,
+      viewport: typeof innerWidth !== 'undefined' ? [innerWidth, innerHeight] : null,
+      gpu: includeGpu ? cachedGpu : null, mode: import.meta.env?.MODE || 'unknown', traceMode,
+    };
+  }
+  function snapshot(options: TraceSnapshotOptions = {}) {
+    return {
+      version: 1, sessionId, startedAt: new Date(startedWall).toISOString(),
+      timeOrigin: typeof performance !== 'undefined' ? performance.timeOrigin : null,
+      environment: environment(options.gpu !== false),
+      telemetry: (() => {
+        try { return cloneSafe(refs.getTelemetry?.() || null); }
+        catch (error) { return { error: errorMessage(error) }; }
+      })(),
+      stats: stats(), frameSchema: FRAME_SCHEMA,
+      frames: options.frames === false ? [] : rows(),
+      events: options.events === false ? [] : events.ordered(),
+    };
+  }
+  function clear() {
+    traceZero = now();
+    events.clear(); frameNext = frameSize = frameDropped = 0;
+    for (const v of Object.values(f)) v.fill(0);
+    for (const key of Object.keys(counts)) delete counts[key];
+    seq = eventNext = 0; lastEventName = '';
+    lastFrameAt = maxGap = spikes = freezes = liveSpikes = liveFreezes = 0;
+    longTasks = longTaskMs = 0; lastPhase = 'unknown'; lastSim = NaN;
+    lastSimAt = simFrozenAt = 0; lastRender = -1; lastRenderAt = renderFrozenAt = 0;
+  }
+  function listen(target: EventTarget, name: string, listener: EventListener): void {
+    target.addEventListener(name, listener, { passive: true });
+    cleanup.push(() => target.removeEventListener(name, listener));
+  }
+  function dispose(): void {
+    if (disposed) return;
+    disposed = true;
+    active = false;
+    while (cleanup.length) {
+      // Diagnostic cleanup must release remaining owners even if one adapter fails.
+      try { cleanup.pop()?.(); } catch (_) { /* best-effort observer teardown */ }
+    }
+    if (typeof window === 'undefined') return;
+    if (window.__DEV_TRACE === api) delete window.__DEV_TRACE;
+    if (window.__QA_TRACE === api) delete window.__QA_TRACE;
+  }
+
+  const api = {
+    enabled: true, get active() { return active; },
+    event: (name: string, data: RuntimeValue = {}) => push('bus', name, traceEventPayload(name, data)),
+    action: (name: string, data: RuntimeValue = {}) => push('action', name, data), frame,
+    mark: (name: string, data: RuntimeValue = {}) => push('mark', name, data),
+    configure(next: TraceRefs = {}) {
+      if (disposed) return api;
+      refs = { ...refs, ...next };
+      if (refs.input?.onAction && !inputBound) {
+        inputBound = true;
+        const input = refs.input;
+        for (const def of input.actionDefs || []) {
+          const off = input.onAction?.(def.id, (code: RuntimeValue) => api.action(def.id, { code }));
+          if (typeof off === 'function') cleanup.push(off);
+        }
+      }
+      // GPU driver queries can serialize with software rasterizers. Keep them
+      // out of startup and sample once, lazily, when a snapshot is exported.
+      push('trace', 'configured', { refs: Object.keys(next), environment: environment(false) });
+      return api;
+    },
+    clear, dispose, start() { if (!disposed) { active = true; push('trace', 'started', {}); } },
+    stop() { push('trace', 'stopped', {}); active = false; },
+    console(on = true) { consoleAll = !!on; return consoleAll; }, stats, snapshot,
+    exportJson(pretty = false, snapshotOptions: TraceSnapshotOptions = {}) {
+      return JSON.stringify(snapshot(snapshotOptions), null, pretty ? 2 : 0);
+    },
+    download(filename = `cot-${traceMode === 'production-qa' ? 'qa' : 'dev'}-trace-${sessionId}.json`) {
+      if (typeof document === 'undefined') return null;
+      const url = URL.createObjectURL(new Blob([api.exportJson(false)], { type: 'application/json' }));
+      const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000); return filename;
+    },
+    tail(n = 100, kind: string | null = null) {
+      const a = events.ordered().filter((row) => !kind || row.kind === kind);
+      return a.slice(Math.max(0, a.length - Math.max(0, n | 0)));
+    },
+  };
+
+  if (typeof PerformanceObserver !== 'undefined') {
+    try {
+      const observer = new PerformanceObserver((list) => {
+        for (const e of list.getEntries()) {
+          if (!active) continue;
+          longTasks++; longTaskMs += e.duration;
+          const entry = e as LongTaskEntry;
+          anomaly('longtask', {
+            startTime: +e.startTime.toFixed(3), duration: +e.duration.toFixed(3),
+            attribution: (entry.attribution || []).map((a: LongTaskAttribution) => ({
+              name: a.name, containerType: a.containerType,
+              containerName: a.containerName, containerSrc: a.containerSrc,
+            })),
+          });
+        }
+      });
+      cleanup.push(() => observer.disconnect());
+      observer.observe({ entryTypes: ['longtask'] });
+    } catch (_) { /* unsupported */ }
+  }
+  if (typeof window !== 'undefined') {
+    const life = (name: string) => (event: Event) => push('lifecycle', name, {
+      persisted: typeof PageTransitionEvent !== 'undefined' && event instanceof PageTransitionEvent
+        ? event.persisted : undefined,
+      hidden: document.hidden, visibilityState: document.visibilityState,
+      focused: document.hasFocus(), viewport: [window.innerWidth, window.innerHeight],
+    });
+    // freeze/resume target document and do not bubble to window.
+    for (const name of ['freeze', 'resume', 'visibilitychange', 'pointerlockchange']) {
+      listen(document, name, life(name));
+    }
+    for (const name of ['pagehide', 'pageshow', 'resize', 'orientationchange']) {
+      listen(window, name, life(name));
+    }
+    listen(window, 'error', (event) => {
+      const e = event as ErrorEvent;
+      push('error', 'window:error', {
+        message: e.message, filename: e.filename, lineno: e.lineno, colno: e.colno, error: e.error,
+      });
+    });
+    listen(window, 'unhandledrejection', (e) => (
+      push('error', 'unhandledrejection', { reason: (e as PromiseRejectionEvent).reason })
+    ));
+    const canvas = refs.renderer?.domElement;
+    if (canvas) listen(canvas, 'webglcontextlost', (event) => {
+      const message = typeof WebGLContextEvent !== 'undefined' && event instanceof WebGLContextEvent
+        ? event.statusMessage : '';
+      anomaly('webgl:context-lost', { statusMessage: message || '' });
+    });
+    if (canvas) listen(canvas, 'webglcontextrestored', () => push('lifecycle', 'webglcontextrestored', {}));
+    window.__DEV_TRACE = api; // backwards-compatible probe name
+    window.__QA_TRACE = api;
+  }
+  push('trace', 'created', { sessionId, eventCap, frameCap });
+  return api;
+}
+
+export function createDevTrace(options: DevTraceOptions = {}) {
+  return createDevTraceCore({ ...options, enabled: options.enabled ?? DEV_TRACE_ACTIVE });
+}

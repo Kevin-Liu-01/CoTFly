@@ -1,0 +1,991 @@
+# Environment recovery and acceptance ledger
+
+## Recovery baseline — 2026-09-07
+
+The previous `/private/tmp/cot-environment-*` worktree directories and their
+recent native captures were missing on inspection. The cause is unknown.
+Integration commit `c5796838857b52a774eeb4ceebf7ece178c908ba` and release commit
+`2f82b3a3646bdfb1693a18f05ceb4b213209f781` survive in Git. Their worktree indexes
+match HEAD; the later uncommitted V57–V59 refinements were not recovered from
+the scoped worktree metadata, stashes or persistent output locations.
+
+Work now lives at
+`/Users/kevinliu/.codex/worktrees/cot-environment-recovery-20260907`, branch
+`codex/environment-recovery-20260907`. The unchanged checkpoint is separately
+checked out at `/Users/kevinliu/.codex/worktrees/cot-environment-baseline-20260907`.
+The shared dirty main checkout is not an integration target.
+
+Current integration now lives at
+`/Users/kevinliu/.codex/worktrees/cot-environment-integration-20260907`, branch
+`codex/environment-integration-20260907`. Merge `4bffcad8c` preserves current
+production `247cb2ef5` (including its 23 newer fleet variants and entry fixes)
+alongside the recovered 30-map environment. Typecheck, product counts, SEO,
+network presentation tests and the public build passed at `13b9497dd`.
+Map refinement continues in the recovery checkout and is cherry-picked only
+after its focused checks; neither checkout is release-approved yet.
+
+The preceding goal turn was **progress**: the recovery and shipping audits
+established the actual surviving source and changed the next action. This
+turn restores a persistent candidate and rebuilds missing improvements.
+
+## Scope remains open
+
+- Improve terrain, mountains, horizons, sky presentation, close detail and
+  inhabited ambient/environment details across the existing maps.
+- Complete ten distinct new maps: Polders, Copper Mesa, Airfield, Oasis,
+  Whiteout, Orchard, Longleaf, Mangrove, Saltwind and Reservoir.
+- Use natural, non-circular water planforms shared by rendering, minimaps,
+  surface interaction and terrain support.
+- Preserve gameplay and authoritative collision/navigation correctness.
+- Prove no performance or memory regression using matched native scenarios,
+  lifecycle/eviction tests, constrained-tier tests and unchanged quality gates.
+- Keep randomized day/night; do not reintroduce rain, snow or dynamic weather.
+- Complete actual nighttime tank headlights and appropriate building/fixture
+  lights. Keep visible emission separate from the bounded light-casting pool;
+  preserve spotting, destruction, Garage restoration and warm-up ownership.
+- Review fresh native images, camera motion and transitions before release;
+  integrate with current origin/main, verify and push only accepted changes.
+
+None of those broad acceptance requirements is certified by this recovery.
+Historical prose or missing reports must not be treated as current proof.
+
+## Fresh baseline evidence
+
+The checkpoint public build passed on 2026-09-07. A maintained staged capture
+completed for Polders and Frosthollow at 1440×900 desktop quality:
+
+`/Users/kevinliu/.codex/visualizations/2026/environment-recovery-20260907/baseline-maps-r1/report.json`
+
+Observed backend: native ANGLE Metal / Apple M5 Max; no page errors. Polders
+overhead visibly retains repeated L/T-shaped lobed water cells. Frosthollow
+renders, but the overall naturalness/detail bar remains subject to review.
+
+This older map-audit acquisition pins dynamic scale to 1 and disables browser
+frame/vsync throttling. Its timing samples are **not** ordinary gameplay
+performance acceptance. Do not use them to waive the normal live-motion,
+resource-residency or constrained-device gates. Screenshot output is persisted
+outside temporary directories. The owned browser/server exited after capture.
+
+## Rebuilt improvements (candidate, not release)
+
+### Tree instance capacity
+
+Construction counts each species once and allocates its existing near/far pools
+at that capacity rather than allocating every pool for the entire population.
+The six-case CPU oracle checks active transforms, colors, fades, slot/upload
+ranges, RNG, collision/spotting records and unchanged object ownership.
+
+| Map | Previous instance arrays | Candidate arrays | Saved |
+| --- | ---: | ---: | ---: |
+| Verdant | 20,465,760 B | 5,116,440 B | 15,349,320 B |
+| Polders | 9,172,800 B | 3,057,600 B | 6,115,200 B |
+| Mangrove | 11,715,480 B | 3,905,160 B | 7,810,320 B |
+
+These are actual CPU typed-array capacities, not total heap or measured driver
+memory. Desktop/mobile placement cases passed. Existing authored-tree,
+clearance (90 structure envelopes) and all-30-library disposal checks passed.
+Native visual, upload and timing parity remain required.
+
+### Night lighting
+
+The standalone candidate owner has at most two unshadowed SpotLights and one
+PointLight. Dedicated semantic materials may glow without allocating one light
+per fixture. Its tests cover source transforms, death/visibility admission,
+fixed pool identity and exact restoration. World registration uses existing
+curtained panes and the real instanced streetlamp lens transform; destroyed
+streetlamps release the point-light slot. Ruined-city panes remain dark.
+
+Application lifecycle integration now passes full typecheck and focused tests:
+prepare after ally/authority visual construction, before warm compilation;
+explicit late-visual registration; no per-frame scene scan; strict spotting and
+death admission; reset on Garage return. This is checkpointed at `0ddf6ec8a`.
+`c4351617a` adds actual authored lens masks. Eight high/low sample builds have
+identical geometry/material-order/transform digests against the recovered
+checkpoint. T-90A X headlights remain an identified unregistered exception;
+a complete playable-fleet census is underway.
+
+`103fb14a2` adds streetlamp lens masks/activity and initially registered the
+curtain material as occupied windows. Native review subsequently found that
+the curtain bucket also contains some fabric and beacon geometry. That blanket
+registration is **not accepted**; semantic per-pane masking is being added.
+The late streetlamp material appends to the original live retained-material
+collection; replacing that collection would lose shader-only/unused resource
+ownership. Regression coverage verifies all 17 materials and 34 textures
+release together when a streetlamp family is present.
+
+The native production day/night probe at
+`/Users/kevinliu/.codex/visualizations/2026/environment-recovery-20260907/night-lights-r1`
+completed six map/tier cases and 25 screenshots without page, GL, shader or
+cleanup errors. Both observed contexts use native Apple M5 Max/ANGLE Metal.
+Its property/lifecycle gates pass, including active-night-to-Garage restoration.
+**Visual acceptance fails:** M1A1 front lenses still look dark, night is too
+dim, and the fallback window closeup is inside roof geometry. Those defects
+remain open despite the machine-readable probe's `passed: true`. The probe
+suspends adaptivity for staged comparisons, so it is not performance evidence.
+Owned Chrome/preview cleanup succeeded and the shared capture FIFO was released.
+
+`9877e9331` corrects the M1A1/Tejas-family registration: the old helper lenses
+were behind three newer hull surfaces. The existing exposed bow-pod faces now
+own illumination instead. Six variants at high/low geometry pass the actual
+forward-occlusion test, and eighteen current/baseline builds preserve all shape,
+normal, UV, color, index, instance-matrix and scene-transform bytes. Mask storage
+for the larger existing dark bucket is 25.9–33.3 KB per Tejas vehicle; there are
+no new meshes, materials or draws. Native verification remains required.
+
+`3b38d65cd` replaces blanket curtain emission with authored outward pane faces
+and red beacon bulbs. Three-seed coverage identifies 190 pane faces, twelve
+bulbs and six unlit cloth panels; original geometry/RNG receipts remain intact.
+The diagnostic camera now ray-checks a real pane instead of guessing from a
+merged material bucket. Structural checks explicitly do not certify visual
+quality. `d3fcc3710` separately lifts night ambient/fill/vehicle readability
+without new lights, geometry, passes or daytime changes. The next fresh native
+run must review these corrections together.
+
+The fresh `night-lights-r2` native run used that integrated public build.
+Its three completed Verdant images show improved tank readability, one clearly
+glowing exposed headlight and a soft road-light pool. The opposite lens is not
+proved visible from this angle. The run then **failed** because no unobstructed
+authored window passed the closeup check. There are no page/console/cleanup
+errors, but it never reached the streetlamp, Shtora or tablet captures. Preserve
+the failed report; do not count this as a complete visual pass. A bounded
+same-build pane/first-occluder census is being added before changing geometry.
+
+### Fresh phase-resource baseline
+
+The unchanged `c57968388` public build completed the maintained native
+Garage → fixed-roster Verdant battle → Garage probe:
+
+`/Users/kevinliu/.codex/visualizations/2026/environment-recovery-20260907/baseline-phase-r1.json`
+
+No browser, console or resource errors occurred. Active battle main-thread
+task cost was 7.353 ms per presented frame; returned Garage used 0.007 core
+equivalent while its animation/shadow work slept. The baseline nevertheless
+**fails eleven existing resource ceilings**, including Garage triangles,
+battle scene/geometric/material/texture counts and returned geometry counts.
+Those raw failures are retained; the thresholds were not relaxed. This is a
+failed baseline, not a new-lighting performance pass. A same-procedure candidate
+run is still required. The owned browser/preview and FIFO wrapper exited.
+
+The integrated `candidate-phase-r1.json` completed the same procedure without
+browser/console/resource errors. Active managed heap is 273.4 MB versus 296 MB
+in the baseline; returned Garage is 188.4 MB versus 201 MB. Active scene objects
+fell from 1,486 to 1,356 and geometry/material/texture residency also fell. This
+does **not** pass the gate: eleven existing ceilings remain exceeded, and the
+new active-battle CPU sample is 17.465 ms/render (46.44 rendered FPS), exceeding
+the unchanged 11.5 ms/render ceiling and the baseline's 7.353 ms/render. A
+profile and controlled repeat are required. New checkpoint-only environment,
+native-GPU and effective-quality receipts will prevent unrecorded atmosphere
+or adaptive-quality differences from being mistaken for matched comparisons.
+
+### Shoreline candidate and fresh visual review
+
+`37271a90b` replaces Polders' 27 overlapping cells with five shared 16-station
+contours (29,061 m² total), re-seats shoreline trees, and shifts two unsafe
+deployment pads 18m east. Dense pad/approach checks pass for three seeds.
+Water-only road elevations remain exact; existing spawn flattening changes
+some nearby old road heights by up to 0.925m. Legacy contour comparisons pass
+23,865 samples. Mangrove's southern willow row now follows the actual bank.
+
+Matched native Polders/Frosthollow captures live at
+`/Users/kevinliu/.codex/visualizations/2026/environment-recovery-20260907/candidate-maps-r1`.
+They render without page errors. Polders removes the repeated L/T lobes, but
+its five compact basins still look too alike in the overhead view. A more
+distinct drainage/bay/hooked-basin composition remains open. Source/test
+checkpointing is not art acceptance. Neither these staged timings nor tree
+buffer savings establish ordinary-play performance parity.
+
+## Recovery round 2 — retained source and native evidence
+
+- `56924f7bf` integrates five differently proportioned Polders drainage
+  contours and order-independent support for overlapping authored bank aprons.
+  Three-seed road, deployment-pad, bank-slope and tree-clearance checks pass;
+  29 other maps retain exact height/normal/water query hashes. Native review at
+  `candidate-maps-r2` shows a long narrow drain, offset retention bays and a
+  flatter coastal horizon. The shapes remain deliberately simple at map scale;
+  this is not a claim of photorealistic shoreline detail. Frosthollow's frozen
+  bank, boat contact and surrounding terrain render without visible gaps in
+  the reviewed views. Capture errors are empty. These staged captures do not
+  certify ordinary gameplay performance.
+- `72f73c156` exposes the farmhouse/alpine panes above their existing wooden
+  backing and fixes a diagnostic Raycaster-origin alias. Exact-build native
+  `window-census-r2` proved six eligible Verdant pane faces were all blocked
+  by wood approximately 6.09 cm in front; increasing the search limit was not
+  the fix. Geometry/RNG/non-pane parity tests preserve the rest of the village.
+- `fc6f06f18` masks existing intact structure windows, the relay warning bulb
+  and the lighthouse lantern. Per-instance destruction/reset activity remains
+  event-driven. Twenty structure families across three seeds retain exact
+  shape/UV/color/topology and RNG; debris and unrelated surfaces remain unlit.
+  The fixed two-spot/one-point projection budget is unchanged. New fixtures
+  still need native closeups before visual acceptance.
+- `candidate-phase-r2.json` records the actual native GPU, build, daytime
+  atmosphere and effective quality around its profiling window. Its CPU
+  profile is diagnostic, not an unprofiled performance repeat. The active
+  nighttime owner was detached, so active night lights do not explain the
+  earlier daytime sample. Baseline/candidate enemy visibility differs, making
+  raw attached-resource and heap deltas unsuitable as an optimization claim.
+  The Garage resource/triangle excess itself predates this candidate.
+- Current production has advanced to `c7089f069`; preserve its cooperative
+  multiplayer entry warming on integration. An immutable current-main
+  baseline and three normal, unprofiled phase runs are being acquired with the
+  same maintained probe. Do not relax existing resource ceilings.
+
+## Recovery round 3 — native review and fixture coverage
+
+`all-map-review-r1` captures the other 28 maps from the immutable `56924f7bf`
+map-review build. Together with `candidate-maps-r2`, all thirty maps have fresh
+1440×900 native establishing views. Browser errors and structural-quality
+failures are empty. All thirty establishing views and selected water/building
+closeups were visually reviewed. They show distinct layouts and continuous
+reviewed shore contacts, not photorealistic/WoT parity or complete motion
+acceptance. The staged timings are not ordinary gameplay performance evidence.
+
+`b2f3aa9a8` registers existing authored vehicle lamp apertures. The complete
+201-model, high/low oracle has 402 exact geometry/material/draw/order matches
+against `13b9497dd`; semantic masks add no shape or draw owners. That result
+precedes the deliberately separate physical repairs in `37de0b6aa`: the M1A3
+lamp assemblies move forward 55 mm, MBT-70 assemblies 115 mm authored
+(108.1 mm installed), and T-90M/Proryv's existing four discs are seated in their
+canted cassettes. Eight high/low aperture checks pass with unchanged main-hull
+geometry and mesh/material/vertex counts. Anatomy/release and native repair
+closeups are still required.
+
+`6f2709ede` detaches inactive cached Garage pedestal roots without freeing or
+rebuilding them. Focused tests cover same-object A→B→A reuse, changed Garage
+height, actual eviction, stale async work, external disposal and battle/Studio
+handoffs. This reduces attached-scene traversal, not retained GPU allocations.
+
+The immutable `c7089f069` production comparison completed three unprofiled
+phase runs (`current-main-phase-r1.json` through `r3.json`). Active battle
+task costs were 13.137, 15.561 and 11.958 ms/render at 57.99, 58.37 and 57.24
+rendered FPS. All three retain the same thirteen failing resource/workload
+ceilings, including the existing 11.5 ms/render limit. Browser errors are
+empty. These are measured baseline failures, not a reason to loosen budgets.
+
+`current-main-residency-r1.json` records eighteen native map activations, three
+ordered sweeps of Verdant, Coastal, Delta, Monsoon, Autumn and Urban, using
+the immutable `residency-cameras-r1.json`. It fails repeated residency:
+renderer textures grow by 78 per six-map sweep, with roughly 133 MB of managed
+heap and 673 MB of backing storage retained per sweep. Source inspection
+identifies exactly thirteen unowned shader textures per map in that production
+revision: ten terrain, one props grime, one canopy detail and one horizon
+detail. Integration already contains their explicit ownership/disposal in
+`23b82f0bc`, plus world-specific disposal in `79d424360`. The connection to
+CSM-held build closures explains the direction of CPU/backing retention but
+is not heap-snapshot-proven. The identical candidate sweep must demonstrate
+bounded residency before the leak is called fixed. No new cleanup patch or
+quality reduction was made merely from this baseline result.
+
+## Recovery round 4 — integrated build and native checks
+
+`3c06d3352` integrates the current `237b9a12c` multiplayer entry work without
+discarding either branch's load-stage and failed-world-activation coverage.
+The `nightLighting` stage is explicitly included in the ordered network load
+stage union. Focused network/world/FX checks and full typecheck pass.
+
+The frozen review tree is
+`/Users/kevinliu/.codex/worktrees/cot-environment-release-review-20260907`.
+Its public build index SHA-256 is
+`11357b5c63d0320b5e26046837f251ed4cdaab61d49c1c69ac9fee137b9342ea`.
+This immutable source/build separates native acquisition from subsequent
+anatomy artifact generation in integration.
+
+`night-lights-r3` records fourteen native captures. The desktop Verdant,
+Winter and Monsoon day/night/day cases pass every structural check, and
+visual review confirms restored daylight, readable player silhouettes,
+visible headlight apertures and road pools, and exposed glowing farmhouse
+panes. The focused streetlamp case remains **failed**: its lamp material and
+point-light position cycle correctly, but the camera is obstructed by a
+roof/chimney. Its shared check also incorrectly demands a player spotlight
+when the closeup is hundreds of metres from the player. These are diagnostic
+defects to repair; those three frames are not accepted fixture evidence.
+
+`candidate-residency-r1.json` uses the identical six-map, three-sweep native
+scenario and camera manifest as the current-production comparison above.
+All comparative memory checks pass. In the mature sweep, GPU geometry,
+texture and program counts remain exactly stable for every revisited map,
+as does backing storage (roughly 201–303 MiB, depending on the two cached
+maps). Managed heap is much lower than the baseline but the strict repeated
+heap gate still fails for Coastal (+2,169,488 bytes versus a 1,450,132-byte
+allowance) and Delta (+1,565,372 versus 1,479,400). Browser errors are empty.
+The overall result remains **failed**, pending retained-heap diagnosis;
+no tolerance was changed and no allocation category was subtracted.
+
+## Recovery round 5 — refreshed art, collision audit and bounded diagnostics
+
+`d5ecd07a9` checkpoints all thirty reviewed native 3840×2160 map heroes and
+their 512×288 picker derivatives. The source captures are in
+`map-art-final-r1`; all sixty published WebPs passed dimension checks.
+`5e0f10441` removes internal construction-lobe seams and overlapping opacity
+from the minimap water painter without allocating another canvas or changing
+the world-to-map projection. All thirty maps / 193 shoreline contours pass
+the projection test. `818d11b90` checkpoints thirty newly rendered 440×440
+minimaps and updates both loading paths to the `north-up-v7` cache key.
+Visual review of Reservoir confirms one connected body instead of three
+outlined construction cells. The 4K images themselves use the actual game
+renderer, not generated concept artwork or upscaled lower-resolution captures.
+
+The native collision refresh is audited in
+`collision-manifest-audit-final-r1.json`. All thirty checksums, byte lengths
+and decoded counts match the index, with unchanged construction seeds.
+Twenty-seven maps retain their counts, **not** identical geometry: all thirty
+include the shared seated wall refits; alpine structures, Orchard's bathhouse
+and Mangrove's grounded fishery/tree placements also have intentional changes.
+The changed exact Polders/Airfield/Reservoir counts come from authored drainage,
+hardstand exclusion, and forked roads/assembly areas respectively. An Airfield
+counterfactual changing only the shared vegetation exclusion restores the old
+2,782 trees from the new 2,691. No collision tolerance is increased. The first
+focused check exposed a stale Reservoir intake-height assertion, which must
+track the taller closed, full-footprint service hood rather than the old cap.
+
+All three unprofiled candidate phase runs are preserved in
+`candidate-phase-final-r1.json` through `r3.json`, with their comparison in
+`candidate-phase-final-comparison.json`. Active battle CPU/render is
+11.885 / 6.967 / 7.168 ms, versus the baseline's 13.137 / 15.561 / 11.958 ms.
+Median rendered FPS is 56.37 versus 57.99; candidate repetitions span
+52.99–59.75. Existing budget failures are 11 / 10 / 10 versus 13 / 13 / 13.
+Actual visibility/workload differences prevent attributing those timings to
+one optimization or declaring an unconditional performance pass.
+
+The retained-allocation diagnostic reproduces the strict Coastal heap failure.
+Its two snapshots show 2,029,052 bytes of growth in V8 code objects, dominated
+by instruction streams, trusted byte arrays and feedback vectors. Closure
+count decreases by one; only the expected two actual world groups remain,
+with fresh identities after eviction. This is evidence of VM code warm-up,
+not permission to subtract that category from the original failed heap gate.
+One additional, predeclared five-sweep ordinary acquisition is pending to
+distinguish a warm-up plateau from continuing growth; no retry-until-pass or
+tolerance change is authorized.
+
+`cc3eb8a3c` repairs the rejected streetlamp camera/admission diagnostics.
+`bd23fd678` forwards raw main-loop cadence to the existing quality governor
+through battle, shot mode and Studio, while animation and simulation keep their
+bounded deltas. This restores the existing hitch filter without changing any
+resize policy, quality floor or acceptance gate. Focused tests and typecheck
+pass; the DPR2 motion result still requires a fresh native acquisition.
+
+`536499739` makes ordinary self-tests hold a renewable contiguous FIFO lease,
+releasing it before the one browser test that owns its own lease. This fixes
+real unqueued full-fleet CPU contention without nesting the release runner's
+resource locks. Suite inventory and failure/signal/refresh tests pass.
+
+The final client review is frozen at `818d11b90` in
+`/Users/kevinliu/.codex/worktrees/cot-environment-final-r4-review-20260907`.
+Its public build and final lighting/motion captures are pending. The complete
+anatomy/marking check passes, but targeted lamp-model release verification
+stopped at the fidelity harness's initial registry readiness, before scores or
+images existed. Earlier eight release phases passed; this startup failure is
+not a fidelity pass and must be diagnosed before continuation. No push yet.
+
+## Recovery round 6 — accepted collision refresh and remaining failures
+
+`846e24d35` commits the complete native collision refresh, the exact intake-hood
+and adjoining-bank assertions, and all thirty per-map storage budgets. Dedicated
+collision, codec and loader tests pass. The published corpus shrinks from
+36,936,381 to 33,770,102 bytes; every individual shard is smaller. The original
+codec test nevertheless failed because the raw corpus shrank faster, changing
+encoded/raw from 77.17% to 80.16%. Its 20% dictionary-efficiency requirement now
+uses a fixed mixed-primitive fixture, while the actual thirty-map corpus must
+remain below **each** prior published byte ceiling. No codec/runtime algorithm,
+quantization, collision tolerance or decoding correctness assertion changed.
+This storage check is separate from runtime memory acceptance.
+
+The five-sweep `candidate-residency-extended-r1.json` acquisition is complete.
+It preserves thirteen strict managed-heap failures; same-map GPU geometry,
+textures, programs and backing storage remain exactly stable. Managed growth
+slows but does not establish a plateau. Offline comparison of the original
+two Coastal snapshots resolves all 642 newly observed instruction streams to
+preexisting function definitions. Their direct closure counts are individually
+unchanged (793 total in each snapshot); replaced per-world closures remain
+bounded. The actual CSM shader-map reference count is 604 in both snapshots.
+Compilation/tier progression explains the instruction-byte increase, but is
+not subtracted from the failed original managed-heap gate.
+
+The R4 build passed with index SHA-256
+`722f133c43716a44b7f1b8bae6d5942938c79b4e04b821489d8bac7a18ed05b1`.
+Its default 31 lighting captures pass structural/lifecycle checks with no
+console or cleanup errors. Visual review confirms actual streetlamp light on
+walls and pavement, headlight road pools, window emission and restored daylight.
+However, Shtora appears amber at night. `1969759bd` reduces only added red-mask
+radiance to preserve red through ACES; native verification remains required.
+
+Additional R4 fixture checks fail closed: Urban's relay camera cannot locate an
+unobstructed authored aperture, and M1A3's exterior camera rays hit actual hull
+faces roughly 41–47 mm before its headlights. The latter is a real remaining
+placement defect: the earlier outward ray began inside single-sided hull
+geometry and missed its backface. Neither partial fixture run is accepted.
+
+`motion-one-r2` passes its live pan and scope but retains the DPR2-only scale
+failure (0.91, internal ratio 1.365). The raw-cadence correction did not resolve
+it. A bounded diagnostic on the same frozen build measured synchronous PNG
+readbacks taking 49–69 ms at DPR1 and 181 ms at DPR2. Those stalls enter ordinary
+frame cadence. The capture method is being corrected without changing quality
+floors, adaptation, timeouts or parity requirements; no nine-case matrix is
+unlocked by the failed receipt.
+
+The four lamp-model release check ran, but is **not passed**. M1A3 and Proryv
+have no registered local reference oracles. Separate remaining checks in
+`lamp-remaining-gates-r2` report all four contiguity/fitting censuses passing;
+MBT70's strict track test fails eight hull-detail voxels. Fresh registered
+MBT70/T90M fidelity and geometry checks also fail. Their exact before/after
+receipts are preserved separately; do not publish a passing qualification or
+redesign unrelated vehicles merely to clear those scores. Attribution against
+the actual lamp-only delta remains necessary.
+
+The first full-suite attempt, `final-npm-test-r1.log`, stops on the
+`sourceXOtherAuxArmor` full-scene fingerprint. The mismatch is being decomposed
+before changing any expected digest. The suite is not reported as passing.
+
+## Recovery round 7 — exterior lamp seating and nonblocking capture
+
+`398deb8a3` corrects the actual exterior visibility of the existing M1A3 and
+MBT-70 lamp assemblies. Their total authored forward offsets are now 110 mm
+and 150 mm respectively; the housings still overlap their supporting hulls
+by 12.18 mm and 7.67 mm. No meshes were added. Exterior-to-lens ray checks,
+including both front quarter views, pass all 72 samples per model/quality.
+The unchanged T-90M and Proryv placements pass 120 samples per quality.
+The default regression now builds all four vehicles at both quality levels
+and checks the actual exterior faces, replacing the misleading inside-out
+ray as the visibility oracle. Canonical anatomy regeneration/check and fresh
+native photographs of this correction remain required.
+
+`abb174100` replaces synchronous motion-proof PNG encoding with asynchronous
+`toBlob` encoding at the same rendered-frame receipt. The probe still takes
+exactly three timed pan snapshots, preserves capture order and frame/pixel
+pairing, and restores the render wrapper after the final requested snapshot.
+Timeout, cancellation and failed readbacks retain fail-closed cleanup. No
+quality policy, floor, camera route or acceptance limit changed. The single
+Winter desktop acquisition in `motion-one-async-r1` passes on the unchanged
+R4 public build, including DPR2 at dynamic scale 1. Its 484 actual pan frames,
+six PNGs and 24-second video are retained; the saved-evidence gate also passes.
+This is visual acquisition evidence, not a new FPS or memory benchmark. The
+final client build still needs its own one-case gate and nine-case matrix.
+
+`6fcb9f39e` and `2b1b5e625` preserve all fourteen Other and eighteen Soviet
+legacy scene hashes. Exact attribute decomposition proves that the newly
+registered `nightEmissionMask` is the only mismatch. Shape hashes still cover
+every former geometry/instance/transform attribute; the mask has its own
+strict byte type, layout, count and value checks. Malformed mask, unknown
+attribute and position-mutation controls prevent silent geometry exclusions.
+Focused Other/Soviet tests pass; unchanged Western and optimization checks
+also pass, including 15,975 optimization controls. The prior failed full-suite
+receipt is retained, and a final complete run remains required.
+
+`ea90a8901` adds a diagnostic-only exact-fixture census. It establishes that
+Urban has no relay instance at all, while Airfield has a real authored radar
+relay. The verification camera now targets that existing fixture; no prop was
+invented or moved to satisfy the test. Census reports cannot qualify a release.
+
+The eight MBT-70 rear hull-detail/track overlap voxels are confirmed unchanged
+by the lamp work: full mesh inventories/matrices and every rear vertex match
+the pre-lamp source, with only forward fixture positions changed. Existing
+MBT-70/T-90M reference-fidelity failures likewise remain documented, and M1A3
+and Proryv still have no registered comparison oracle. No fake reference,
+passing ledger, geometry tolerance or tank redesign has been substituted.
+Owner direction on publishing this focused lighting work with those existing
+qualification limitations has been requested; publication remains pending.
+
+The complete 29-test post suite and TypeScript/core-unused checks pass.
+The core suite's unrelated repository-hygiene failure was a missing allowlist
+entry for the already tracked and indexed tank-generation handbook;
+`deddbd62c` repairs it, and `8297588ec` keeps its stable handbook link outside
+the generated directory index. Agent-docs scaffold/doctor passes all four
+checks. The queued second core run was canceled before any test began so the
+scoped source repairs could complete; it is neither a pass nor a test failure.
+
+## Final client freeze — R5
+
+`03972db04` checkpoints the final physical lamp source and twelve reviewed
+technical diagrams plus their manifest. Canonical anatomy update and check
+both pass: 174 current receipts, 56 demand groups, 1,496 modules, 348 track
+sides, zero failures/outside-envelope modules, and 522 current technical
+assets. The 79 preexisting published-dimension warnings remain visible. Each
+changed diagram differs at only 5–11 bow-lamp pixels; no labels, layouts,
+portraits or other catalog records changed.
+
+`6a5b50a81` integrates `98b24722c` from main. The two merge conflicts were the
+network load-stage union and its ordering regression: both `nightLighting`
+and the new `panelMasks` stage are retained before shader compilation.
+Focused network presentation/input/transport/handoff checks and full
+TypeScript/core-unused checks pass in `final-integration-check-r1.log`.
+An independent read-only review found no lost lamp preparation, late-visual
+registration, Garage reset, readback cleanup or lazy fleet boundary.
+
+The immutable client is
+`/Users/kevinliu/.codex/worktrees/cot-environment-final-r5-review-20260907`.
+Its public build passes (`final-r5-public-build.log`) with index SHA-256
+`985c766d9f307883c119c1e8f439c85a7de0899d17c01170bb422195a7c5b428`.
+The public registry retains 174 first-party procedural playables and zero
+runtime GLB sources. Fresh R5 night/fixture and motion acceptance is pending;
+the passing R4 one-case result is not reused as this build's admission gate.
+
+## R5 acquisition results
+
+All three fresh native lighting reports pass their structural/lifecycle gates:
+`night-lights-r5` (31 images), `world-lights-r3` (9), and `vehicle-lights-r3`
+(12). All 52 PNGs were individually reviewed; page, console and cleanup error
+lists are empty. The frozen source and build hash are unchanged. Reviewed
+views show both M1A3 front lamps, the selected MBT-70 front lamp, near-side
+T-90M/Proryv cassette lenses, red/red-orange Shtora, the red Airfield relay cap,
+warm Coastal lighthouse glass, building panes, and light on roads/walls.
+Daylight restores, and Garage detaches the light pool with zero emitters and
+all three light intensities zero. This is native Chromium visual evidence,
+not physical Safari/iPad or an ordinary performance certification.
+
+The MBT-70 framing crops the far lamp off-screen. Its selected near lamp has
+actual aperture/line-of-sight/radiance/day-reset evidence; the four-model CPU
+regression covers both lamp seats separately. Do not claim both MBT-70 lamps
+were visually certified by that one closeup. Exact review and owner/face
+details are in `lighting-r5-review.md`.
+
+`motion-final-r5-one-r1` remains **failed**. Its 473 actual live submissions
+advance 8.1168 positive-delta seconds at unchanged quality, and x8 scope passes.
+The DPR2 checkpoint has dynamic scale 0.91/internal ratio 1.365; returning to
+DPR1 restores scale 1. A partial-evidence request and context/video finalization
+also time out, leaving no qualified recording. The browser finally closes
+gracefully, the preview stops and the queue is released. The acquisition hash
+matches the earlier passing R4 run exactly; neither that earlier pass nor the
+successful lighting captures unlocks this build's nine-case motion matrix.
+
+Offline comparison finds no postprocessing/adaptive/viewport/resolution/world
+or main-frame runtime difference between the two frozen builds. It does not
+establish a cause for the DPR2 reduction. The 16.3761-second gap between resize
+receipts includes 16.1167 seconds of game advance and 17,620 renderer submissions,
+so it is not evidence that the game was frozen throughout. Synchronous `toBlob`
+snapshot cost, encode callback timing and host delivery time were not measured.
+The DPR2 scale is sampled before its own PNG request, which therefore cannot
+cause that already-recorded scale on the same frame.
+
+`31b5cb91a` fixes a proven capture-cleanup defect without changing the runtime
+or motion gate: completed acquisitions no longer retransfer an already-saved
+PNG during partial recovery. Interrupted acquisitions still recover evidence;
+layout inspection and context/video cleanup proceed independently if recovery
+fails. Focused CPU controls pass. The three existing whole-tool complexity
+violations are unchanged, with baseline metric equality recorded separately;
+the new cleanup owner is within limits. The updated acquisition fingerprint is
+`75b8a7cb4c5f03fb246670cf1fbf91256b6ae0e89a49acac007868bc0306474b`.
+No further native run was made, and the old failed receipt was not relabeled.
+
+The private build also passes (`final-private-build-r1.log`). Its status
+receipt records only concurrent authorized documentation/test changes, no
+generated runtime or asset mutations, and no staged comparison GLBs. The R5
+public build was not rebuilt or replaced.
+
+## Full-suite checkpoint
+
+The single complete `npm test` attempt in `final-npm-test-r2.log` runs on an
+unchanged, clean `74e2c3439` source. It stops at pre-suite file 26,
+`roadWheelRestHeights.selftest.mjs`: 25 of 252 pre tests passed; the 496 core
+and 29 post tests did not start. The earlier separately passing post run is
+not represented as completion of this invocation. Its exact JSON receipt
+retains the nonzero exit and source/status equality.
+
+Bounded decomposition recovers all eight original road-wheel hashes and
+every original height/support/movement assertion. The only added attributes
+are all-zero masks on three high-detail M1A2 gear meshes and one low-detail
+gear mesh; no physical byte changed. `60e533d78` keeps all eight original
+digests and passes the focused test with strict all-zero metadata checks and
+malformed-mask/physical-mutation controls.
+
+The bounded vehicle batch passes sixteen tests unchanged. Its only failure,
+`returnRollerOutset.selftest.mjs`, has the same inherited all-zero M1A2 gear
+attributes. Exact decomposition recovers all four original digests, including
+both unchanged Leopard 2A5 tiers. `b88d7cd48` preserves those digests and passes
+the focused roller/attachment tests with equivalent negative controls.
+
+The nine-test world batch passes eight unchanged. Reservoir's remaining
+failure is not a lighting mask: all 31 waterworks parts have no such attribute.
+Exact historical map inputs recover all six V25/V27 hashes. The intentional
+`c8476fa77` road/spawn/hardstand redesign changes only 12 terrain-following
+parts; the other 19, every index and every X/Z vertex remain exact. The
+repaired focused test retains the six historical hashes against their frozen
+inputs, adds separate current-layout receipts, and checks grounded Y, metric
+V and the penstock's resulting normals. Current-layout physics, RNG, support,
+material and storage assertions remain in force. The focused test passes for
+all three seeds, including malformed-geometry negative controls. These
+focused results do not turn the failed complete-suite invocation into a pass.
+
+## Incremental publication checkpoint
+
+The owner explicitly requested progressive commits and pushes of completed
+nighttime, map and horizon work while development continues. This checkpoint
+therefore ships independently of final whole-pass certification. The strict
+memory, high-DPI motion and historical model-reference limitations above are
+still open; no failed receipt or gate is relabeled as passing.
+
+`b3bdad64b` integrates `origin/main` through `ed7054141` without conflicts.
+The four focused shader-warmup/network-presentation/observer tests and the
+complete TypeScript/core-unused check pass in
+`incremental-entry-merge-check-r1.{json,log}`. Source HEAD and runtime files
+remain fixed throughout. The receipt explicitly records the concurrent,
+unchanged Reservoir test-only MJS/JSON patch. The full-suite inventory is now
+252 pre, 497 core and 29 post files (778 total); no complete-suite pass is
+claimed. This integration does not replace the earlier immutable R5 captures
+with evidence for the newly merged shader-preparation code.
+
+The newly requested biome-specific horizon-cluster work is isolated in
+`/Users/kevinliu/.codex/worktrees/cot-horizon-detail-20260907`, separate from
+this completed map/nighttime checkpoint and all frozen capture builds.
+
+## Published map/night checkpoint and horizon follow-up
+
+`0cc77469161e1f4cf5abd0b6d836ac2db233597a` was pushed to `origin/main` with
+the completed thirty-map/environment and nighttime-lighting integration.
+`963957d3fc86e951fc464cc22e94adb5449effd7` was subsequently pushed with the
+seeded biome-atlas factory and its native Canvas2D tests. That second commit
+does **not** connect the new atlas to live map geometry by itself.
+
+The live ridge-cluster integration is checkpointed locally at `dba1c5ce3`.
+It supplies six silhouette families with explicit recipes for all thirty
+maps, a single bounded static mesh/atlas owner per map, and reversible night
+dimming. Its frozen native candidate is
+`cot-horizon-review-r1-20260907`; the clean public build has index SHA256
+`cf1339a14bd8c461fff79f125b41cd60992fe17afe81afdcc141bbf2a0af809d`.
+The build and focused CPU/texture checks pass, but in-world art acceptance is
+still pending. These local commits are not described as shipped.
+
+The matched pre-change capture (`horizon-density-before-r1`) contains 45
+native desktop images across Verdant, Titan Gorge, Winter, Coastal and Polders.
+The Polders scope views point into sky, so they are retained as non-diagnostic
+rather than accepted as landscape proof. `55de389bf` adds a lowland-specific
+scope target without changing the other cameras and a separate explicit
+establishing-only capture mode. The first corrected Polders acquisition
+(`horizon-polders-before-r2`) failed before map capture because the Garage
+slideshow changed during its eight-frame warmup. Its incomplete report remains
+a failure; neither frozen build was changed or rebuilt to conceal it.
+
+Focused source-cache isolation, night-lamp reset mocks and horizon receipts
+were repaired in `91f751abe`, `61dd9b220` and `d62d691b8` respectively. The
+historical horizon hashes were not replaced: restoring only Polders' former
+`.50` amplitude reproduces all six original aggregate digests. Separate exact
+current `.18` receipts and mutation controls now protect the intentionally
+lowered skyline. All ninety current/baseline land buffers (thirty maps,
+three seeds) remain byte-identical. The combined focused receipt is
+`horizon-detail-verification-r1.json` under the existing evidence root.
+None of these focused passes substitutes for the open full-suite, strict
+memory, high-DPI motion or final visual gates above.
+
+The independent cache-instrumentation and Garage-lamp-reset test repairs were
+also applied to the publication worktree as `a56cbb8c7` and `20d4c65cc`, on top
+of current main `db400d61b`. Both focused tests pass again on unchanged clean
+`0be4cd540` in `incremental-tests-r2.{json,log}`. This test/documentation-only
+checkpoint does not publish the still-local horizon placement or change any
+runtime rendering code.
+
+## Progressive checkpoint — 2026-09-08
+
+`7e0216e5e` published bounded raw-resize and PNG-phase diagnostics; it did
+not alter the runtime or relax quality gates. `a08063cc3` and `34e3a0876`
+subsequently published the lowland capture framing and fresh natural Garage
+archive-entry acquisition, preserving current main through `e199032a3`.
+All five published capture files are byte-identical to the tested `800b6ff4f`
+source. Its four CPU controls passed, and the unchanged tools completed the
+corrected nine-image Polders baseline plus the 45-image candidate acquisition.
+The separate clean-integration CPU rerun passes all four controls on unchanged
+`34e3a0876` in `incremental-capture-tests-r3.{json,log}`. This is capture-tool
+verification, not a new runtime visual or performance certification.
+
+The candidate `horizon-density-after-r1` completed on native ANGLE Metal/M5 Max,
+with 45 PNGs, 20 scope contracts, no page errors and unchanged frozen source,
+build index and acquisition tools. All 45 camera projections match; 43 full
+pose receipts match. Polders' first two unscoped views retain an inactive zoom
+value of eight instead of two; that mismatch remains in the integrity report.
+All corrected Polders scope poses match exactly. Older v5 images are static
+art references, not timing baselines for the new v6 acquisition.
+
+**Art acceptance fails.** Verdant's pale, squat ridge groups read as rocks,
+not layered forest; Titan's dominant background still reads as smooth pink
+mounds. Winter/Coastal details are generally too faint. The full review is
+`horizon-density-after-r1-art-review.md` under the existing evidence root.
+The live horizon placement is therefore still local. Current refinements
+target Titan's actual land silhouette and a confirmed second baked fog blend
+in the detail colors; neither is represented as visually accepted yet.
+
+The single frozen-R5 DPR diagnostic `motion-r5-dpr-diagnostic-r1` completed
+with six images and a finalized native recording. It did not reproduce the
+earlier scale drop: all sampled frames stayed at scale one. DPR2 nevertheless
+had a 24.4 ms median raw frame gap, and its PNG completion took 6.9 seconds.
+The one-second resize window does not span the governor's 1.5-second decision
+cadence; raw sampling also ends before PNG completion. The old failure remains
+failed, and no sustained high-DPI, new-horizon or full-matrix acceptance follows
+from this diagnostic. Its `diagnostic-summary.md` records the causal limits.
+
+## Incremental atlas and Titan checkpoints — 2026-09-08
+
+`66163345ac0da8fc01b636e7d5e283afb07fb3cd` published rooted woodland
+silhouettes in the bounded atlas factory. Fourteen native Canvas2D atlases
+passed the existing support, seam, determinism and desktop/mobile budgets;
+all five non-woodland families retained their exact raster hashes. The atlas
+factory is still separate from the unpublished live ridge-detail integration.
+
+The frozen R2 candidate `3c3b6aaecf6fa0ed7e21f208b00fac4156227d04`
+completed 45 native desktop images with all full poses and all 20 scope
+contracts exactly matching R1. Its public index is
+`1b4d819b72a3d43b1cab88b4b1565a7a945eb8d32aa1b29fdbef5b4bc856e0cc`.
+Verdant/Coastal trees are now readable, and Titan has visible broad mesa caps.
+Remaining art defects are explicit: crest-only forest rows, plain canyon faces,
+and weakly legible Winter/Polders accents. These static captures pin dynamic
+scale and are not performance acceptance. Reports and all original failed
+captures remain under the persistent environment-recovery evidence root.
+
+`193c10ae6` isolates the verified Titan cap geometry on current main without
+shipping the separate live-detail child. It reuses the existing land buffers,
+rows and topology; there are no new textures, draws or per-frame callbacks.
+`c062eddd1` first repairs the historical/current Polders test attribution.
+The isolated publication passes Titan, horizon-resource and Copper tests,
+full typecheck/core-unused and the public build in
+`titan-publication-check-r1.{json,log}`. All thirty land meshes across three
+seeds are byte-identical to R2, and the strict Titan test preserves all other
+29 current map geometries. R2's complete image/resource totals are not claimed
+equivalent: R2 also contains an unshipped horizon-detail child.
+
+The live forest/rock/snow placement remains local for further art and resource
+verification. No whole-pass memory, motion or all-map art gate is waived by
+these useful incremental publications. Weather particles remain excluded.
+
+`30c3b1315` further improves the atlas foundation with irregular spacing,
+overlapping lower crowns and attached low foliage, preserving the same texture
+dimensions, shape count and drawing budget. The native R3 rasters pass all56
+band checks and both device tiers; all five other families stay byte-identical.
+Root reviewed both woodland rasters. The isolated current-main check passes
+native atlas tests, runtime complexity, typecheck/core-unused and public build
+in `horizon-atlas-publication-r3.{json,log}`. The unchanged legacy `inspectBand`
+test-helper complexity violation remains documented in
+`horizon-atlas-woodland-r3/metrics-comparison.json`; it is not a runtime failure
+or a blanket all-file quality pass. This foundation revision does not enable
+the live placement system or certify the updated trees in-world.
+
+## Mesa surface checkpoint — 2026-09-08
+
+`f9694510d` and `1830ce5b5` isolate the next runtime refinement: broken
+rock beds and weathered patches on the six mesa-style horizons (Titan Gorge,
+Copper Mesa, Skybridge, Desert, Badlands and Caldera). The existing base-texture
+sampler now admits rock grain above a low scrub line; previously a nonzero
+treeline setting suppressed that detail across the whole face. The material
+reuses its two existing detail samples, with no additional textures, geometry,
+draws or per-frame owners. The fragment does add bounded shader arithmetic;
+zero GPU-time cost is not claimed. Near-flat caps, repaired cap surfaces and
+marine regions retain their existing shader gain; non-mesa materials are exact.
+The intentional base-texture grain change does not imply identical cap pixels.
+
+The first R3 native review failed: the proposed steep-wall mask barely admitted
+Titan's actual smooth shoulder normals. An actual-mesh ray census identified
+that cause. The corrected mask preserves the cap exclusion while admitting
+those supported faces; derivative fading and contrast limits are unchanged.
+Frozen R4 `0ee8af9aa` completed all 45 native images and 20 scope contracts with
+exact R3 camera/pose matches, no page errors or context loss, and full cleanup.
+Review accepts the narrow improvement: fragmented low-contrast rock accents
+are visible without continuous bands or noisy wide-view blotches. The broad
+pink, smooth landforms still need stronger art direction; this is not final
+canyon realism or a gameplay performance certification.
+
+The isolated publication passes both mesa controls, Titan geometry, horizon
+resource lifecycle, Copper geometry, typecheck/core-unused and public build in
+`mesa-publication-check-r2.{json,log}`. All 30 land meshes across three seeds and
+the complete material generator match the reviewed R4 source exactly. R4's
+separate live horizon-detail child is deliberately excluded from this batch.
+The earlier R1 preflight parser failure remains recorded; its comparison
+included an unrelated legacy helper and ran no runtime checks. R2 extracts the
+same named function through TypeScript's syntax tree and retains byte equality.
+
+R4 also positively reviews angular snow shelves, still local. The separate
+all-30-map/two-tier resource census records the real cost of the pending live
+detail integration: six replacements shrink geometry, sixteen increase only
+geometry, and eight previously bare maps add one detail mesh/material/atlas.
+New atlas backing is 384 KiB desktop or 96 KiB mobile per admitted map, not zero.
+These bounded construction receipts do not waive the open strict managed-heap,
+ordinary-motion, high-DPI or whole-pass quality gates. Day/night remains;
+weather particles remain excluded.
+
+## Diagnostics retention checkpoint — 2026-09-08
+
+`396d27141` fixes a small, independently identified retention owner: the loaded
+performance HUD observed long tasks during Shot/Studio frames, but those paths
+skip `hud.update`, which previously owned the only five-second eviction. The
+observer now expires old records before collecting another batch. Ordinary
+quiet-window cleanup and all render/frame wiring remain unchanged; there is
+no new timer or recurring owner.
+
+The existing late-Coastal snapshots show 356 to 474 retained task records,
+matching 3,144 bytes of shallow record/backing growth. The real-HUD regression
+test fails on the exact historical source and passes on the corrected owner,
+including no-update, boundary, quiet-window and capture-hidden cases. Six
+focused tests, strict runtime metrics and full typecheck/core-unused pass in
+`perf-hud-retention-r1-checks.json` under the persistent evidence root. This
+checkpoint has no new browser, build or memory acquisition.
+
+The separate residual heap census finds stable counts in the checked world,
+CSM and listener owners. Compiler metadata accounts for much of the larger
+late growth, but neither that attribution nor this small fix establishes a
+plateau. All 13 strict failures and the original measured growth remain
+unwaived. See `late-heap-coastal-r1/residual-summary-r1.json` for the bounded
+retainer checks; no category subtraction or tolerance change is permitted.
+
+## Snow artwork checkpoint and rejected slope layout — 2026-09-08
+
+`cdedd5606` isolates the two-file snow-atlas refinement from local `0ee8af9aa`:
+broken snow shelves and connected exposed rock replace rounded cornices. The
+same four bands, dimensions and resource ownership are retained; five other
+biome families keep exact native raster hashes. The public source has no live
+caller of `createHorizonDetailAtlas`, so this is a dormant artwork foundation,
+not a claim that the new snow/horizon details are visible in production. It
+does not enable weather, a live detail child, a draw or an allocation there.
+
+On the current `007c45499` main base, all seven publication checks pass in
+`horizon-snow-publication-r1.{json,log}`: native two-tier atlas controls,
+existing horizon lifecycle, atmosphere, performance-HUD retention, full
+typecheck/core-unused, atlas complexity and public build. The exact atlas
+source/test match frozen R6. Its production index is
+`cc375a7d5e50633f33ecb3d17aa1f90d5a0862ce23deef97c3887cb7b0488450`.
+No new gameplay performance or memory acquisition is claimed for dormant art.
+
+The separate live slope-layout candidate remains rejected. Frozen R6
+`ee8e9734e` passed eleven checks/build and produced 45 matched native images
+for Verdant, Titan Gorge, Winter, Coastal and Polders, plus nine matched
+Frontier images. All 54 saved poses and 24 scope contracts match their R4
+baselines; both runs report no page errors or context loss, and owned browser
+processes, ports and queue tickets are released. See
+`horizon-density-after-r6-integrity.json` and
+`horizon-frontier-after-r6/acquisition-receipt.json`.
+
+Actual review still finds thin single-file forest rows around mostly bare
+hills. Verdant's EN foreground ridge loses visible crest cover; Frontier WN
+and WS lose substantial forest without convincing slope coverage replacing
+it. Valid terrain roots do not make this composition acceptable. Preserve
+these images as failed art evidence, not final all-map acceptance. The next
+refinement should address forest surface/stand mass within existing budgets.
+All strict managed-heap and ordinary/high-DPI motion gates remain open; no
+tolerance change, category subtraction or broader completion is implied.
+
+## Published-source motion checkpoint and forest review — 2026-09-08
+
+The maintained desktop/Winter reproducer passed on clean published source
+`c0dcf8255`, index `cc375a7d5e50633f33ecb3d17aa1f90d5a0862ce23deef97c3887cb7b0488450`.
+All 483 submitted frames of the eight-second live pan retained scale 1 and
+trim 0. The original one-second DPR 2 and restored-DPR 1 observations each
+recorded 61 frames at scale 1. Native M5 Max Metal/Chromium 151.0.7922.34
+rendered all six inspected PNGs without blanking, stretching or context loss;
+saved receipt/image/video hashes and owned-process cleanup revalidated.
+Evidence: `motion-published-c0-one-r1/{receipts.json,review.md}` under the
+persistent evidence root. This is daytime Chromium emulation, not nighttime,
+sustained DPR 2 motion, physical iPad/Safari or horizon-candidate acceptance.
+The original R5 failure remains preserved; its historical cause is unresolved.
+
+The next local forest-surface candidate uses spare channels of the existing
+256-square detail texture. Frozen R7 `617f09176` passed focused checks/build
+and produced 45 exact matched poses and 20 scope contracts, with unchanged
+source/build/acquisition, native Metal, no page errors and clean disposal.
+Actual Verdant/Coastal scope review nevertheless finds a regular fish-scale
+pattern. R7 is rejected for publication, not certified by its passing tests.
+See `horizon-density-after-r7-{integrity,cleanup}.json` and the adjacent
+`horizon-density-after-r7-art-review.md` for the bounded views reviewed.
+
+Irregular crown placement and a projection-angle guard are being tested
+locally. Same texture/draw counts do not establish performance or memory
+parity: added construction/shader work and distinct program variants must
+still be evaluated. No live horizon child ships in this evidence checkpoint.
+The broader motion matrix, strict managed-heap failures and all-map art
+acceptance remain open without tolerance changes or category subtraction.
+
+## Rejected forest R8 and acquisition repair — 2026-09-08
+
+Frozen R8 `cda9db292` completed eighteen native Verdant/Coastal images with
+unchanged source/build/acquisition and exact R4/R6/R7 poses and scope contracts.
+The irregular crown texture reduces R7's periodic pattern, but actual review
+still finds flat pebbly/brushy patches rather than convincing woodland mass.
+Both the surface-only candidate and the separate live horizon child remain
+unpublished. Local `f5f351f0d` reduces construction indexing work while retaining
+exact R8 pixels; that optimization does not turn rejected artwork into a pass.
+Evidence: `horizon-density-after-r8-{integrity.json,review.md}` and
+`forest-crown-r3-{parity,construction}.json` under the persistent evidence root.
+
+The next proposed forest experiment is finite-depth, terrain-seated canopy
+shells on Verdant, Coastal and Frontier, not further scalar noise tuning.
+`forest-horizon-next-approach.md` records source boundaries, atlas/geometry
+ceilings, exact nonpilot exclusions and native art/motion gates. This is a
+design note, not an implemented result. Existing strict performance and
+managed-heap failures remain open; no resource or tolerance waiver is implied.
+
+Published `ca3ae80a2` separately repairs map-audit acquisition: both development
+and production preview request an OS-assigned ephemeral port and navigate to
+the actual bound address. The old random range included Chromium-blocked 6566,
+which caused an Oasis candidate run to fail before game boot. The failed R1
+receipt is retained. The full acquisition selftest and fresh native baseline/
+candidate R2 captures pass with the same corrected tool hash. This is a
+test-runner fix, not a gameplay rendering change.
+
+## Oasis shoreline checkpoint — 2026-09-08
+
+The accepted R3 source `3d5ece805` replaces three circular spring cells with
+one asymmetric sixteen-station basin. It uses the unchanged shared shoreline
+contract for visible banks, terrain, wetness, fallback minimap and server
+ground queries. Water coverage is 15,560 m² versus the original 15,904 m²;
+three seeded support checks retain road and deployment-pad elevations to
+floating-point precision. The first smooth bean-shaped candidate was rejected.
+R3's unequal capes and coves pass the narrow native art review, with some
+overhead polygonality and broader map-surface realism still unfinished.
+
+`oasis-native-integrity-r3.json` records all nine native views with unchanged
+source/build/tool hash, no page errors or context loss, and owned cleanup.
+Eight cameras and seven complete poses match the old shoreline baseline:
+`water-current` deliberately reframes the new bank, while `water` retains the
+camera but reports the changed terrain clearance. Pinned capture timings are
+not an ordinary-motion or whole-pass performance certification. The checked
+scene retains 43 textures and 31 materials; terrain topology remains exact.
+
+The refreshed hero is 3840×2160, its thumbnail 512×288 and minimap 440×440.
+Intent prefetch and world activation share a dependency-free URL owner; only
+Oasis changes its browser cache key. The other 29 map images and generated art
+registry remain byte-identical. New actual-bank chunk tests cover wet/dry
+crossings, all emitted LOD paths and shared east seams. The historical mask
+oracle remains intact; only 2,663 water-channel texels differ in the current
+512-square mask, with road/rut/village-soil channels exact.
+
+The canonical native collision capture on integrated `19e03d36b` records
+2,489 obstacles, 2,278 colliders and 1,889 concealers. Its generated shard is
+668,068 bytes versus the prior 669,820, within the unchanged 685,786-byte
+ceiling. Only Oasis and its checksum-index entry change; the other 29 shards
+remain byte-identical. Updated tree/prop acceptance is regenerated from the
+actual world, not inferred from unchanged authored placement arrays.
+
+The coherent artifact checkpoint is `a847b0a18`. Focused Oasis mask, geometry
+and loader checks, full typecheck, all-30-map dedicated collision and codec
+checks, signaling and map-art guards pass. The final clean public build also
+passes: `oasis-final-public-build-r1.json` verifies all three packaged images
+against both public and reviewed native artifacts, with the collision shard
+unchanged. Its index hash is
+`641ec811e6da951f3fcf082353d4f65e1caeb6211778af10bb4e45dcf100fe24`.
+The default full mask/streaming tests still stop on unchanged Polders
+references; their failures are preserved and not relabeled green by the
+explicit Oasis-only checks. Existing whole-pass managed-heap, motion and
+all-map art gates remain open without a waiver.
+
+## Acceptance checklist
+
+1. Polders contour/terrain/route tests and matched native views: completed.
+2. Night source/lifecycle integration and spotting/death/Garage tests: completed.
+3. Final native night brightness/glow/contact review: completed for the stated
+   captured views; the published-source desktop/Winter DPR prerequisite now
+   passes as recorded above, while broader motion acceptance remains open.
+4. Frame timing and cache-eviction acquisitions: recorded; strict memory and
+   quality acceptance remain open as detailed above.
+5. Thirty-map visual/art/minimap refresh and native collision refresh: completed;
+   exact waterworks, census, codec and loader checks pass.
+6. Current-main integration is checkpointed for owner-requested incremental
+   publication; final whole-pass verification remains pending.
+
+## Targeted terrain and vegetation diagnostics
+
+The following maintained probes complement the full map audit. They retain
+actual source/scene measurements and use the shared capture queue. Keep their
+outputs in fresh ignored QA directories; none replaces the complete map gates.
+
+- `node tools/far-tree-trunk-audit.mjs --out=.qa-dev/far-tree-trunks-review`
+  captures the native far-tree trunk/base silhouettes used to check biome LOD
+  transitions after root or canopy changes.
+- `node tools/road-exit-native-audit.mjs --url=http://127.0.0.1:4180 --out=.qa-dev/road-exits-review`
+  captures approach and overhead views of authored road endpoints on an
+  existing development server after texture readiness.
+- `node tools/road-corridor-sections.mjs --receipt=.qa-dev/road-pilot.json --out=.qa-dev/road-sections.json`
+  reconstructs cross-sections from a failed pilot's exact source hashes and
+  recorded sample orientation. It requires the original failed pilot receipt
+  and rejects changed terrain, corridor or endpoint sources.

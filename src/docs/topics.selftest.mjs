@@ -1,0 +1,56 @@
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DOCS_ICON_SPECS } from './docsIcons.ts';
+import { TOPIC_ORDER, topicSectionId, topics } from './topics.ts';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const expected = [
+  'build', 'models', 'simulation', 'vehicles', 'rendering', 'performance',
+  'worlds', 'ai', 'multiplayer', 'audio', 'interface', 'studio',
+];
+
+assert.deepEqual([...TOPIC_ORDER], expected, 'the manual keeps one deliberate public topic order');
+assert.deepEqual(Object.keys(topics).sort(), [...expected].sort(), 'every topic is present in navigation');
+assert.deepEqual(
+  [0, 1, 2, 3, 4, 5].map(topicSectionId),
+  ['topic-section-1', 'topic-section-2', 'topic-section-3', 'topic-section-4', 'topic-section-5', 'topic-section-6'],
+  'topic anchors stay unique and locale-independent when headings are translated',
+);
+
+const landing = readFileSync(join(ROOT, 'docs.html'), 'utf8');
+const docsCss = readFileSync(join(ROOT, 'src/docs/docs.css'), 'utf8');
+const topicsSource = readFileSync(join(ROOT, 'src/docs/topics.ts'), 'utf8');
+for (const id of TOPIC_ORDER) {
+  const topic = topics[id];
+  assert.ok(topic, `${id} has a topic definition`);
+  assert.ok(Object.hasOwn(DOCS_ICON_SPECS, topic.icon), `${id} has a typed custom icon`);
+  assert.ok(topic.sections.length >= 5, `${id} remains a substantive manual`);
+  assert.equal(topic.sectionIcons.length, topic.sections.length, `${id} has an icon for every section`);
+  for (const icon of topic.sectionIcons) {
+    assert.ok(Object.hasOwn(DOCS_ICON_SPECS, icon), `${id} section icon ${icon} is registered`);
+  }
+  assert.equal(topic.media.length, 2, `${id} has two current visual evidence anchors`);
+  assert.ok(existsSync(join(ROOT, `docs-${id}.html`)), `${id} has an independently indexed HTML entry`);
+  assert.match(landing, new RegExp(`href="/docs/${id}"`), `${id} is discoverable from the manual index`);
+}
+
+assert.match(docsCss, /\.topic-nav \.shell\{display:grid;grid-template-columns:minmax\(120px,\.72fr\) repeat\(6,minmax\(0,1fr\)\)/, 'wide manuals expose every topic in a balanced two-row grid');
+assert.match(docsCss, /\.topic-nav \.shell\{display:flex;gap:1px;overflow-x:auto;[^}]*scrollbar-width:thin\}/, 'narrow manuals keep an explicit scrollable topic strip');
+assert.match(topicsSource, /navStrip\.scrollLeft = Math\.max\(0, activeTopic\.offsetLeft/, 'narrow manuals reveal their active topic without moving the page');
+assert.doesNotMatch(topicsSource, /replace\(\/\[\^a-z0-9\]/, 'translated headings must not determine section anchors');
+
+const buildText = [topics.build.lede, ...topics.build.sections.flat()].join(' ');
+assert.match(buildText, /Claude Code and Codex/);
+assert.match(buildText, /Git worktrees/);
+assert.match(buildText, /origin\/main/);
+assert.match(buildText, /AGENTS\.md/);
+
+const modelText = [topics.models.lede, ...topics.models.sections.flat()].join(' ');
+assert.match(modelText, /Kevin B\. Liu authored every playable tank|first-party procedural runtime geometry/);
+assert.match(modelText, /Generate icons and technical cards/);
+assert.match(modelText, /tank:anatomy:update/);
+assert.match(modelText, /tank:release:check/);
+
+console.log('topics.selftest: 12 indexed manuals with complete icon and workflow coverage passed');

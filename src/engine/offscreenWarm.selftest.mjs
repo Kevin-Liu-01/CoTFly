@@ -1,0 +1,180 @@
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import { createOffscreenSceneWarmer, warmSceneOffscreenBatched } from './offscreenWarm.ts';
+
+function fakeRenderer({ throwOnRender = false } = {}) {
+  const prior = { name: 'prior-target' };
+  const calls = [];
+  let current = prior;
+  return {
+    prior,
+    calls,
+    getDrawingBufferSize(out) { return out.set(2000, 1000); },
+    getRenderTarget() { return current; },
+    getActiveCubeFace() { return 3; },
+    getActiveMipmapLevel() { return 2; },
+    setViewport() { assert.fail('warm-up must not mutate the canvas viewport'); },
+    setRenderTarget(target, face = 0, mip = 0) {
+      current = target;
+      calls.push({ kind: 'target', target, face, mip });
+    },
+    render(scene, camera) {
+      assert.notEqual(current, null, 'warm-up rendered to the default framebuffer');
+      assert.notEqual(current, prior, 'warm-up rendered into the caller target');
+      assert.equal(current.width, 500);
+      assert.equal(current.height, 250);
+      assert.equal(current.texture.colorSpace, THREE.LinearSRGBColorSpace,
+        'warm target must match the production linear post target program key');
+      calls.push({ kind: 'render', scene, camera, target: current });
+      if (throwOnRender) throw new Error('synthetic render failure');
+    },
+    compileAsync(scene, camera, targetScene) {
+      assert.notEqual(current, null, 'async compilation used the default framebuffer key');
+      assert.notEqual(current, prior, 'async compilation used the caller target key');
+      assert.equal(current.texture.colorSpace, THREE.LinearSRGBColorSpace);
+      calls.push({ kind: 'compile', scene, camera, targetScene, target: current });
+      return Promise.resolve();
+    },
+  };
+}
+
+{
+  const renderer = fakeRenderer();
+  const scene = { name: 'scene' };
+  const camera = { name: 'camera' };
+  const warm = createOffscreenSceneWarmer(renderer, scene, camera);
+  warm();
+
+  assert.equal(renderer.calls[0].kind, 'target');
+  assert.equal(renderer.calls[1].kind, 'render');
+  assert.deepEqual(renderer.calls.at(-1), {
+    kind: 'target', target: renderer.prior, face: 3, mip: 2,
+  });
+  const firstRenderCall = renderer.calls.find((call) => call.kind === 'render');
+  assert.ok(firstRenderCall, 'warm-up must submit one private-target render');
+  const firstTarget = firstRenderCall.target;
+  await warm.compileAsync(scene);
+  assert.equal(renderer.calls.at(-2).kind, 'compile');
+  assert.deepEqual(renderer.calls.at(-1), {
+    kind: 'target', target: renderer.prior, face: 3, mip: 2,
+  }, 'the caller target is restored while parallel compilation settles');
+  warm.dispose();
+  warm();
+  const renderCalls = renderer.calls.filter((call) => call.kind === 'render');
+  assert.notEqual(renderCalls.at(-1).target, firstTarget,
+    'disposing a temporary warmer releases and recreates its private target');
+}
+
+{
+  const renderer = fakeRenderer({ throwOnRender: true });
+  const warm = createOffscreenSceneWarmer(renderer, {}, {});
+  assert.throws(() => warm(), /synthetic render failure/);
+  assert.deepEqual(renderer.calls.at(-1), {
+    kind: 'target', target: renderer.prior, face: 3, mip: 2,
+  }, 'the caller render target must be restored after a failed warm-up');
+}
+
+{
+  const renderer = fakeRenderer();
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera();
+  const meshes = Array.from({ length: 3 }, () =>
+    new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
+  scene.add(...meshes);
+  const masks = meshes.map((mesh) => mesh.layers.mask);
+  let yields = 0;
+  const timings = await warmSceneOffscreenBatched(renderer, scene, camera, {
+    scale: 0.25,
+    maxObjects: 1,
+    maxWeight: Infinity,
+    yieldBeforeBatch: async () => {
+      yields++;
+      assert.deepEqual(meshes.map((mesh) => mesh.layers.mask), masks,
+        'no temporary layer masks survive into a covered yield');
+    },
+  });
+  assert.equal(timings.length, 3, 'one-object limit creates bounded warm batches');
+  assert.equal(yields, 3, 'each upload batch yields before submitting work');
+  assert.deepEqual(meshes.map((mesh) => mesh.layers.mask), masks,
+    'batched warm restores every production layer mask');
+}
+
+for (const failure of [null, 'render', 'yield']) {
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera();
+  const makeMesh = () => new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const parent = makeMesh();
+  const child = makeMesh();
+  parent.add(child);
+  const hidden = makeMesh();
+  hidden.visible = false;
+  const excluded = makeMesh();
+  excluded.layers.set(3);
+  const invisibleMaterial = makeMesh();
+  invisibleMaterial.material.visible = false;
+  const lod = new THREE.LOD();
+  lod.addLevel(parent, 0);
+  scene.add(lod, hidden, excluded, invisibleMaterial);
+  const all = [parent, child, hidden, excluded, invisibleMaterial];
+  const masks = all.map((object) => object.layers.mask);
+  const submitted = [];
+  const originalFailure = new Error(`injected ${failure}`);
+  let yields = 0;
+  const task = warmSceneOffscreenBatched({}, scene, camera, {
+    maxObjects: 1,
+    maxWeight: Infinity,
+    yieldBeforeBatch: () => {
+      assert.deepEqual(all.map((object) => object.layers.mask), masks);
+      assert.equal(lod.autoUpdate, true, 'temporary LOD policy never survives a yield');
+      if (++yields === 2 && failure === 'yield') throw originalFailure;
+    },
+    renderBatch: () => {
+      assert.equal(lod.autoUpdate, false, 'the selected production LOD is stable while warming');
+      const active = [parent, child].filter((object) => object.layers.test(camera.layers));
+      assert.equal(active.length, 1, 'a renderable parent cannot prune its child batch');
+      assert.equal(parent.visible, true);
+      submitted.push(active[0]);
+      if (failure === 'render') throw originalFailure;
+    },
+  });
+  if (failure) await assert.rejects(task, (error) => error === originalFailure);
+  else {
+    assert.equal((await task).length, 2);
+    assert.deepEqual(submitted, [parent, child], 'each eligible object is submitted exactly once');
+  }
+  assert.deepEqual(all.map((object) => object.layers.mask), masks, 'restore layers on success, render error and cancellation');
+  assert.equal(lod.autoUpdate, true, 'restore caller LOD policy');
+  assert.equal(hidden.visible, false);
+  assert.equal(invisibleMaterial.material.visible, false);
+  for (const object of all) { object.geometry.dispose(); object.material.dispose(); }
+}
+
+{
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera();
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const lod = new THREE.LOD();
+  lod.addLevel(mesh, 0); scene.add(lod);
+  const mask = mesh.layers.mask;
+  let prepared = false;
+  let rendered = false;
+  const failure = new Error('preparation cancelled');
+  await assert.rejects(warmSceneOffscreenBatched({}, scene, camera, {
+    async prepareObjects(objects) {
+      assert.deepEqual(objects, [mesh]);
+      assert.equal(lod.autoUpdate, true);
+      assert.equal(mesh.layers.mask, mask);
+      await Promise.resolve();
+      prepared = true;
+      throw failure;
+    },
+    renderBatch() { rendered = true; },
+  }), error => error === failure);
+  assert.equal(prepared, true);
+  assert.equal(rendered, false, 'failed preparation cannot submit any upload');
+  assert.equal(lod.autoUpdate, true);
+  assert.equal(mesh.layers.mask, mask);
+  mesh.geometry.dispose(); mesh.material.dispose();
+}
+
+console.log('offscreenWarm self-test passed');

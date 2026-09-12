@@ -1,0 +1,40 @@
+---
+name: server-skill
+description: Implement and operate Claude of Tanks signaling and dedicated authoritative multiplayer servers.
+---
+
+# claude-of-tanks / server
+
+## Purpose
+
+Provide bounded network coordination and dedicated ranked authority.
+The signaling server relays WebRTC descriptions/ICE only and never gameplay.
+
+## Mental model and invariants
+
+- `roomStore.ts` owns private-room rendezvous membership.
+- `distributedRoomStore.ts` owns durable Redis membership and signaling mailboxes.
+- `roomCode.ts` keeps room-code generation inside the typed serverless
+  closure; production `.js` entries must not import raw `.ts` source files.
+- `signalingServer.ts` owns HTTP upgrade, origin/rate/payload gates, and relay.
+- `dedicatedMatchRegistry.ts` owns authenticated match lifecycle and reconnects.
+- `dedicatedMatchServer.ts` owns the authoritative WebSocket service boundary.
+- `rankedMatchmaker.ts` owns bounded queues, team balance, and match-ticket handoff;
+  `ratingStore.ts` owns bearer identities, persistent Elo, and idempotent results.
+- `dedicatedWorldCollision.ts` inflates match-local state from generated
+  per-map collision shards; do not hand-edit their records or checksum index.
+  Keep idle map retention bounded and release active terrain leases on teardown.
+- A v1 browser-hosted room closes if its host leaves; never silently migrate a
+  ranked authority to a player.
+- Production signaling must run behind TLS with an explicit origin allowlist.
+- TURN credentials come from deployment configuration and are never committed.
+- Keep payloads, queues, rooms, rates, and lifetimes bounded.
+
+## Verification
+
+Run `node server/signaling.selftest.mjs` and
+`node server/dedicatedWorldCollision.selftest.mjs`. Ranked changes additionally
+run the rating, matchmaker, HTTP, and real-WebSocket tests. Regenerate world manifests
+with `tools/capture-world-collision-manifests.mjs` after authored map collision
+changes. Any gameplay authority added here must also run the shared `src/net`
+tests, deterministic match tests, abuse cases, and real WebSocket soak/load tests.

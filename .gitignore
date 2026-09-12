@@ -1,0 +1,45 @@
+node_modules
+dist/
+shots/
+.DS_Store
+public/models/community-candidates/user-drops-recovered/
+
+# Model sourcing staging area — candidates judged then discarded; shipped
+# versions live under public/models/tanks/. Keeps the repo from carrying
+# hundreds of MB of raw source bundles.
+public/models/community-candidates/
+
+# Throwaway critic/diagnostic probes generated during review rounds
+tools/tmp-*
+public/models/**/*.glb.bak
+public/models/tanks/candidates-gen2/
+tools/__pycache__/
+__pycache__/
+.vercel/
+.qa-device/
+.qa-dev/
+.env
+.env.*
+!.env.example
+!.env.*.example
+public/models/tanks/**/*.glb
+
+# Local agent/task state and generated performance evidence
+.claude/
+docs/agents/
+docs/handoff/
+docs/cert-*.json
+docs/feel-*.json
+docs/perf-*.json
+docs/*-report.json
+docs/*-report.md
+docs/quietcert-*.log
+docs/qa-evidence-manifest.json
+# Iterative visual-critic output is local evidence. Maintained conclusions
+# belong in vehicle reference packets or ADRs.
+docs/critique/*
+.stryker-tmp/
+.quality-reports/
+coverage/
+.vercel
+.env*

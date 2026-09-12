@@ -1,0 +1,72 @@
+#!/usr/bin/env node
+// Detect a second full-length rendered track course without changing vehicle
+// geometry. The canonical smart system is one terrain-conforming band per
+// side plus one animated tread-shoe layer containing its connector/guide
+// detail. A separate connector mesh, overlapping smart layer or static
+// track-like course fails. This tool is report-only and never edits geometry.
+
+import { withIsolatedCaptureBrowser } from './isolated-capture-browser.mjs';
+
+// Loading the factory initializes every extension pack before the roster is
+// read, matching the provenance audit's complete-fleet discovery order.
+await import('../src/vehicles/tankFactory.ts');
+const { ALL_TANK_IDS } = await import('../src/vehicles/specs.ts');
+
+const idArg = process.argv.find((arg) => arg.startsWith('--ids='));
+const wheelOverlaysOnly = process.argv.includes('--wheel-overlays-only');
+const ids = idArg
+  ? idArg.slice('--ids='.length).split(',').map((id) => id.trim()).filter(Boolean)
+  : [...ALL_TANK_IDS];
+
+const failures = [];
+const layered = [];
+await withIsolatedCaptureBrowser({
+  root: process.cwd(),
+  logLevel: 'error',
+  server: { port: 7680 + Math.floor(Math.random() * 120), strictPort: false, hmr: false, watch: null },
+}, {
+  headless: 'new',
+  args: ['--use-gl=angle', '--enable-webgl', '--no-sandbox', '--disable-dev-shm-usage'],
+}, async ({ server, browser }) => {
+  const page = await browser.newPage();
+  page.setDefaultTimeout(120000);
+
+  for (const id of ids) {
+    await page.goto(
+      `http://localhost:${server.config.server.port}/tools/track-duplicate-audit.html?id=${encodeURIComponent(id)}`,
+      { waitUntil: 'domcontentloaded' },
+    );
+    await page.waitForFunction('window.__TRACK_DUPLICATE_READY === true', { polling: 50 });
+    const result = await page.evaluate('window.__TRACK_DUPLICATE_AUDIT');
+    if (result.canonical?.connectorLayers) layered.push(id);
+    if (wheelOverlaysOnly
+      ? (result.error || result.staticRoadWheelOverlays?.length)
+      : !result.pass) failures.push(result);
+  }
+});
+
+console.log(`[track-duplicate] audited ${ids.length} first-party tanks`);
+console.log(`[track-duplicate] ${ids.length - layered.length}/${ids.length} use one integrated `
+  + 'animated tread/connector shoe layer');
+if (failures.length) {
+  console.error(`[track-duplicate] FAIL (${failures.length})`);
+  for (const result of failures) {
+    if (wheelOverlaysOnly) {
+      console.error(`  - ${result.id}: ${JSON.stringify(result.staticRoadWheelOverlays)}`);
+      continue;
+    }
+    console.error(`  - ${result.id}: ${result.error || JSON.stringify({
+      duplicatePairs: result.duplicatePairs,
+      staticCandidates: result.staticCandidates,
+      staticRoadWheelOverlays: result.staticRoadWheelOverlays,
+      roadWheelLayers: result.canonical?.roadWheelLayers,
+      separateConnectorLayers: result.canonical?.connectorLayers ?? 0,
+    })}`);
+  }
+  process.exit(2);
+}
+if (wheelOverlaysOnly) {
+  console.log('[track-duplicate] PASS — no static road-wheel overlays outside the suspension-driven train');
+  process.exit(0);
+}
+console.log('[track-duplicate] PASS — no overlapping smart courses or static full-length track proxies');

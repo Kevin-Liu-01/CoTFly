@@ -1,0 +1,569 @@
+import { checkedIntegrationPort } from '../app/checkedIntegrationPort.ts';
+import type { MainFxRuntime } from '../app/mainContracts.ts';
+import type { LazyAudio } from '../audio/lazyAudio.ts';
+import { normalizeGameMode } from '../sim/matchModes.ts';
+import type { WorkYielder } from '../engine/frameScheduler.ts';
+import { t } from '../ui/i18n.ts';
+import type { BattleLoadRosterRow, BattleLoadScreen } from '../ui/battleLoad.ts';
+import type { MaterialTankSpec } from '../vehicles/materials.ts';
+import type { WorldRuntime } from '../world/map.ts';
+import type { BattlefieldMapConfig } from '../world/maps/index.ts';
+import type { BattleEntryAcquisition } from './battleEntryAcquisition.ts';
+import type { BattleEntryLifecycle } from './battleEntryLifecycle.ts';
+import type { BattleIntentRuntime } from './battleIntentRuntime.ts';
+import type { GaragePedestalVisual } from './garagePedestalRuntime.ts';
+import type { SoloBattleDeploymentRuntime } from './soloBattleDeploymentRuntime.ts';
+import type {
+  BattleVisualEntity,
+  BattleVisualStreamer,
+} from './battleVisualStreamer.ts';
+
+interface LoadingEntity extends BattleVisualEntity {
+  isPlayer?: boolean;
+  spec: MaterialTankSpec & NonNullable<BattleVisualEntity['spec']>;
+  visual?: (NonNullable<BattleVisualEntity['visual']> & GaragePedestalVisual) | null;
+}
+
+interface LoadingGame {
+  tanks: LoadingEntity[];
+  player?: LoadingEntity | null;
+}
+
+type AudioPort = Pick<LazyAudio, 'startLoadingAfterPaint' | 'loadingOn' | 'ambientOn' | 'warmBattleEvents'>;
+type FxRuntime = Pick<MainFxRuntime, 'group' | 'preloadTextures' | 'warmTextures'>;
+type BattleIntentPort = Pick<BattleIntentRuntime, 'consumeMap' | 'prepareRoster'>;
+type EntryAcquisitionPort = Pick<BattleEntryAcquisition, 'acquireSolo'>;
+type DeploymentPort = Pick<SoloBattleDeploymentRuntime, 'warm'>;
+type EntryLifecyclePort = Pick<BattleEntryLifecycle, 'primeReveal'>;
+type TextureUploadTrace = Awaited<ReturnType<BattleVisualStreamer['stageRootTextureUploads']>>;
+type AsyncLoadResult = Promise<object | boolean | null | void>;
+
+interface BattleLoadTrace {
+  map: string;
+  worldCached: boolean;
+  stages: Record<string, number>;
+  fxTextureUpload?: TextureUploadTrace;
+  world?: object | null;
+  worldTextureUpload?: TextureUploadTrace;
+  totalMs?: number;
+  loadingElapsedMs?: number;
+  visiblePreBattleS?: number;
+  expectedClickToControlMs?: number;
+}
+
+interface VisualLoadTiming {
+  specId: string;
+  quality: 'preview';
+  startedAt: number;
+  buildMs: number;
+  prebakeMs: number;
+  uploadMs?: number;
+  preUploadYieldMs?: number;
+  textureUploadMs?: number;
+  compileMs?: number;
+  postCompileYieldMs?: number;
+  totalMs?: number;
+}
+
+type LoadingHost = typeof globalThis & {
+  __VISUAL_LOAD_TIMINGS?: VisualLoadTiming[];
+  __BATTLE_LOAD?: BattleLoadTrace;
+  __WORLD_LOAD?: object;
+};
+
+export interface SoloBattleLoadingRuntimeOptions {
+  game: LoadingGame;
+  post: { setAdaptiveSuspended(suspended: boolean): void };
+  battleIntent: BattleIntentPort;
+  battleLoad: BattleLoadScreen;
+  audio: AudioPort;
+  acquisition: EntryAcquisitionPort;
+  deployment: DeploymentPort;
+  lifecycle: EntryLifecyclePort;
+  getPendingMapId(): string;
+  getMapName(mapId: string): string;
+  loadMapConfig(mapId: string): Promise<BattlefieldMapConfig>;
+  getMapThumb(mapId: string): string;
+  hasCachedWorld(mapId: string): boolean;
+  getWorld(): WorldRuntime;
+  ensureWorld(
+    mapId: string,
+    onProgress: (fraction: number, label: string) => void,
+    options: { precompile: boolean; services: boolean; atmosphere: 'covered-battle' },
+  ): AsyncLoadResult;
+  ensureBattleVisuals(): AsyncLoadResult;
+  getBattleVisuals(): BattleVisualStreamer;
+  ensureBattleHud(): AsyncLoadResult;
+  preloadMinimap(mapId: string): AsyncLoadResult;
+  ensureTouchControls(): AsyncLoadResult;
+  preloadSettings(): AsyncLoadResult;
+  preloadArmorAim(): AsyncLoadResult;
+  preloadGarageReturn(): AsyncLoadResult;
+  planRoster(specId: string, randomRoster: boolean): string[];
+  planCamoOverrides(specId: string, mapId: string, randomRoster: boolean): string[];
+  ensureTankBuilders(specIds: string[]): AsyncLoadResult;
+  preloadSoloAuthority(): AsyncLoadResult;
+  preloadBattleClient(): AsyncLoadResult;
+  preloadBattleWarm(): AsyncLoadResult;
+  preloadBattleStart(): AsyncLoadResult;
+  ensureKillcam(): AsyncLoadResult;
+  ensureFx(): Promise<FxRuntime>;
+  startBattle(
+    specId: string,
+    mapId: string,
+    options: {
+      deferVisuals: boolean;
+      preBattleHold: boolean;
+      randomRoster: boolean;
+      gameMode?: string;
+    },
+  ): void;
+  prepareBattleWorldServices(world: WorldRuntime): void;
+  getPedestalVisual(): GaragePedestalVisual | null;
+  prebakeSharedTextures(
+    spec: MaterialTankSpec,
+    anisotropy: number,
+    quality: 'preview',
+    yieldForBudget: WorkYielder,
+  ): Promise<void>;
+  anisotropy: number;
+  rosterRows(team: string): BattleLoadRosterRow[];
+  warmShotCards(specIds: string[]): void;
+  getCamoSweep(): Parameters<DeploymentPort['warm']>[0];
+  prepareRevealCamera(): void;
+  resolveVisiblePreBattleSeconds(
+    requestedSeconds: number,
+    loadingElapsedSeconds: number,
+    minimumSeconds: number,
+  ): number;
+  preBattleHoldSeconds: number;
+  minimumVisiblePreBattleSeconds: number;
+  openBattle(seconds: number): void;
+  scheduleDeferredWarm(generation: number): void;
+  nextFrame(): Promise<void>;
+  createLoadingYielder(budgetMs: number, maxDelayMs: number): WorkYielder;
+  now?: () => number;
+  delay?: (milliseconds: number) => Promise<void>;
+}
+
+export interface SoloBattleLoadingRuntime {
+  begin(
+    specId: string,
+    mapId?: string | null,
+    options?: SoloBattleLoadingStartOptions,
+  ): Promise<void>;
+}
+
+export interface SoloBattleLoadingStartOptions {
+  randomRoster?: boolean;
+  gameMode?: string;
+}
+
+export function soloBattleLoadingModeLabel(gameMode: string, requestedMapId: string | null): string {
+  const battlefield = requestedMapId === 'random'
+    ? t('battleLoad.battlefieldAny')
+    : t('battleLoad.battlefieldSelected');
+  if (gameMode === 'standard') {
+    return requestedMapId === 'random'
+      ? `${t('battleLoad.randomAnyBattlefield')}`
+      : `${t('battleLoad.randomStandard')}`;
+  }
+  const mode = normalizeGameMode(gameMode);
+  return `${t(`playMenu.matchMode.${mode}.label`)} · ${battlefield}`;
+}
+
+function plannedWorldVehicleIds(mapConfig: BattlefieldMapConfig): string[] {
+  const tankWrecks = mapConfig.props?.tankWrecks;
+  if (!tankWrecks || !('ids' in tankWrecks) || !Array.isArray(tankWrecks.ids)) return [];
+  return tankWrecks.ids;
+}
+
+function validateLoadingPorts(options: SoloBattleLoadingRuntimeOptions): void {
+  try {
+    if (!options.game) throw new TypeError('missing game state');
+    checkedIntegrationPort(
+      options.post ?? {}, 'solo battle loading quality', ['setAdaptiveSuspended'],
+    );
+    checkedIntegrationPort<BattleIntentPort>(
+      options.battleIntent ?? {}, 'solo battle loading intent', ['consumeMap', 'prepareRoster'],
+    );
+    checkedIntegrationPort<BattleLoadScreen>(
+      options.battleLoad ?? {},
+      'solo battle loading screen',
+      ['show', 'progress', 'rosters', 'hide'],
+    );
+    checkedIntegrationPort<AudioPort>(
+      options.audio ?? {},
+      'solo battle loading audio',
+      ['startLoadingAfterPaint', 'loadingOn', 'ambientOn', 'warmBattleEvents'],
+    );
+    checkedIntegrationPort<EntryAcquisitionPort>(
+      options.acquisition ?? {}, 'solo battle loading acquisition', ['acquireSolo'],
+    );
+    checkedIntegrationPort<DeploymentPort>(
+      options.deployment ?? {}, 'solo battle loading deployment', ['warm'],
+    );
+    checkedIntegrationPort<EntryLifecyclePort>(
+      options.lifecycle ?? {}, 'solo battle loading lifecycle', ['primeReveal'],
+    );
+    checkedIntegrationPort(
+      {
+        getPendingMapId: options.getPendingMapId,
+        getMapName: options.getMapName,
+        loadMapConfig: options.loadMapConfig,
+        getMapThumb: options.getMapThumb,
+        hasCachedWorld: options.hasCachedWorld,
+        getWorld: options.getWorld,
+        ensureWorld: options.ensureWorld,
+        ensureBattleVisuals: options.ensureBattleVisuals,
+        getBattleVisuals: options.getBattleVisuals,
+        ensureBattleHud: options.ensureBattleHud,
+        preloadMinimap: options.preloadMinimap,
+        ensureTouchControls: options.ensureTouchControls,
+        preloadSettings: options.preloadSettings,
+        preloadArmorAim: options.preloadArmorAim,
+        preloadGarageReturn: options.preloadGarageReturn,
+        planRoster: options.planRoster,
+        planCamoOverrides: options.planCamoOverrides,
+        ensureTankBuilders: options.ensureTankBuilders,
+        preloadSoloAuthority: options.preloadSoloAuthority,
+        preloadBattleClient: options.preloadBattleClient,
+        preloadBattleWarm: options.preloadBattleWarm,
+        preloadBattleStart: options.preloadBattleStart,
+        ensureKillcam: options.ensureKillcam,
+        ensureFx: options.ensureFx,
+        startBattle: options.startBattle,
+        prepareBattleWorldServices: options.prepareBattleWorldServices,
+        getPedestalVisual: options.getPedestalVisual,
+        prebakeSharedTextures: options.prebakeSharedTextures,
+        rosterRows: options.rosterRows,
+        warmShotCards: options.warmShotCards,
+        getCamoSweep: options.getCamoSweep,
+        prepareRevealCamera: options.prepareRevealCamera,
+        resolveVisiblePreBattleSeconds: options.resolveVisiblePreBattleSeconds,
+        openBattle: options.openBattle,
+        scheduleDeferredWarm: options.scheduleDeferredWarm,
+        nextFrame: options.nextFrame,
+        createLoadingYielder: options.createLoadingYielder,
+        now: options.now ?? (() => performance.now()),
+        delay: options.delay ?? (() => Promise.resolve()),
+      },
+      'solo battle loading orchestration',
+      ['getPendingMapId', 'getMapName', 'loadMapConfig', 'getMapThumb',
+        'hasCachedWorld', 'getWorld', 'ensureWorld', 'ensureBattleVisuals',
+        'getBattleVisuals', 'ensureBattleHud', 'preloadMinimap',
+        'ensureTouchControls', 'preloadSettings', 'preloadArmorAim', 'preloadGarageReturn', 'planRoster',
+        'planCamoOverrides', 'ensureTankBuilders', 'preloadSoloAuthority',
+        'preloadBattleClient', 'preloadBattleWarm', 'preloadBattleStart',
+        'ensureKillcam', 'ensureFx', 'startBattle', 'prepareBattleWorldServices',
+        'getPedestalVisual', 'prebakeSharedTextures', 'rosterRows', 'warmShotCards',
+        'getCamoSweep', 'prepareRevealCamera', 'resolveVisiblePreBattleSeconds',
+        'openBattle', 'scheduleDeferredWarm', 'nextFrame', 'createLoadingYielder',
+        'now', 'delay'],
+    );
+  } catch {
+    throw new TypeError('solo battle loading runtime requires every lifecycle port');
+  }
+}
+
+function validateLoadingNumbers(options: SoloBattleLoadingRuntimeOptions): void {
+  if (!Number.isFinite(options.anisotropy) || options.anisotropy < 0 ||
+      !Number.isFinite(options.preBattleHoldSeconds) || options.preBattleHoldSeconds < 0 ||
+      !Number.isFinite(options.minimumVisiblePreBattleSeconds) ||
+      options.minimumVisiblePreBattleSeconds < 0) {
+    throw new TypeError('solo battle loading runtime requires finite quality and countdown values');
+  }
+}
+
+/**
+ * Own the covered solo entry from Battle intent through the visible countdown.
+ * The composition root supplies capabilities; acquisition order, progress,
+ * exact-roster preparation, diagnostics, and reveal fallback stay here.
+ */
+export function createSoloBattleLoadingRuntime(
+  options: SoloBattleLoadingRuntimeOptions,
+): SoloBattleLoadingRuntime {
+  validateLoadingPorts(options);
+  validateLoadingNumbers(options);
+  const {
+  game,
+  post,
+  battleIntent,
+  battleLoad,
+  audio,
+  acquisition,
+  deployment,
+  lifecycle,
+  getPendingMapId,
+  getMapName,
+  loadMapConfig,
+  getMapThumb,
+  hasCachedWorld,
+  getWorld,
+  ensureWorld,
+  ensureBattleVisuals,
+  getBattleVisuals,
+  ensureBattleHud,
+  preloadMinimap,
+  ensureTouchControls,
+  preloadSettings,
+  preloadArmorAim,
+  preloadGarageReturn,
+  planRoster,
+  planCamoOverrides,
+  ensureTankBuilders,
+  preloadSoloAuthority,
+  preloadBattleClient,
+  preloadBattleWarm,
+  preloadBattleStart,
+  ensureKillcam,
+  ensureFx,
+  startBattle,
+  prepareBattleWorldServices,
+  getPedestalVisual,
+  prebakeSharedTextures,
+  anisotropy,
+  rosterRows,
+  warmShotCards,
+  getCamoSweep,
+  prepareRevealCamera,
+  resolveVisiblePreBattleSeconds,
+  preBattleHoldSeconds,
+  minimumVisiblePreBattleSeconds,
+  openBattle,
+  scheduleDeferredWarm,
+  nextFrame,
+  createLoadingYielder,
+  now = () => performance.now(),
+  delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  } = options;
+
+  const host = globalThis as LoadingHost;
+
+  return {
+    async begin(specId, mapId = null, { randomRoster = true, gameMode = 'standard' } = {}) {
+      // Debug/API entry can bypass the Garage's ui:battleStart event.
+      post.setAdaptiveSuspended(true);
+      const shownAt = now();
+      host.__VISUAL_LOAD_TIMINGS = [];
+      const loadYield = createLoadingYielder(12, 80);
+      const requestedMapId = mapId || getPendingMapId();
+      const normalizedGameMode = normalizeGameMode(gameMode);
+      const resolved = battleIntent.consumeMap(specId, requestedMapId);
+      const mapName = getMapName(resolved);
+      const mapConfigPromise = loadMapConfig(resolved);
+      const trace: BattleLoadTrace = {
+        map: resolved,
+        worldCached: hasCachedWorld(resolved),
+        stages: {},
+      };
+      let markedAt = shownAt;
+      const mark = (name: string): void => {
+        const marked = now();
+        trace.stages[name] = Math.round(marked - markedAt);
+        markedAt = marked;
+      };
+
+      battleLoad.show({
+        mapName: mapName || resolved,
+        thumb: getMapThumb(resolved),
+        biome: resolved,
+        mode: soloBattleLoadingModeLabel(normalizedGameMode, mapId),
+        allies: [],
+        enemies: [],
+      });
+      await audio.startLoadingAfterPaint();
+      await ensureBattleVisuals();
+      const battleVisuals = getBattleVisuals();
+
+      battleLoad.progress(0.01, 'Loading combat interface');
+      const battleInterface = Promise.all([
+        ensureBattleHud(),
+        ensureTouchControls(),
+        preloadSettings(),
+        preloadArmorAim(),
+        // Return/rematch must not wait on a first chunk fetch after its button
+        // hides the report. Acquire only the owner under this painted loader;
+        // no Garage teardown, scene restore or room routing runs here.
+        preloadGarageReturn(),
+      ]);
+
+      battleLoad.progress(0.02, 'Loading battlefield');
+      const plannedRoster = planRoster(specId, randomRoster);
+      const plannedAutoCamoIds = planCamoOverrides(specId, resolved, randomRoster);
+      const rosterTexture = battleIntent.prepareRoster({
+        specId,
+        mapId: resolved,
+        rosterIds: plannedRoster,
+        autoCamoIds: plannedAutoCamoIds,
+        yieldForBudget: loadYield,
+      });
+      let fxPreparationCurrent = true;
+      const assertFxPreparationCurrent = (): void => {
+        if (!fxPreparationCurrent) throw new Error('FX preparation superseded by failed battle entry');
+      };
+      const fxUploadYield = async (): Promise<void> => {
+        assertFxPreparationCurrent();
+        await loadYield();
+        assertFxPreparationCurrent();
+      };
+      const fxTexture = ensureFx().then(async (live) => {
+        assertFxPreparationCurrent();
+        await live.preloadTextures?.();
+        assertFxPreparationCurrent();
+        live.warmTextures?.();
+        const receipt = await battleVisuals.stageRootTextureUploads(live.group, fxUploadYield);
+        assertFxPreparationCurrent();
+        live.group.userData.battleTexturesStaged = true;
+        trace.fxTextureUpload = receipt;
+        return receipt;
+      });
+
+      try {
+        await acquisition.acquireSolo([
+        () => battleInterface,
+        () => preloadMinimap(resolved),
+        () => ensureWorld(
+          resolved,
+          (fraction, label) => battleLoad.progress(0.02 + fraction * 0.53, label),
+          { precompile: false, services: false, atmosphere: 'covered-battle' },
+        ),
+        async () => {
+          const mapConfig = await mapConfigPromise;
+          return ensureTankBuilders([...plannedRoster, ...plannedWorldVehicleIds(mapConfig)]);
+        },
+        () => preloadSoloAuthority(),
+        () => preloadBattleClient(),
+        () => preloadBattleWarm(),
+        () => preloadBattleStart(),
+        () => audio.warmBattleEvents(),
+        () => fxTexture,
+        () => ensureKillcam(),
+        () => rosterTexture,
+        ]);
+      } catch (error) {
+        // A sibling may fail while FX construction, image decode or an upload
+        // yield is pending. Its observed continuation must not resume GPU work
+        // after the entry owner has restored Garage.
+        fxPreparationCurrent = false;
+        throw error;
+      }
+
+      trace.world = host.__WORLD_LOAD || null;
+      battleLoad.progress(0.55, 'Uploading battlefield textures');
+      trace.worldTextureUpload = await battleVisuals.stageRootTextureUploads(
+        getWorld().group,
+        loadYield,
+      );
+      mark('world');
+      battleLoad.progress(0.555, 'Battlefield ready');
+      await nextFrame();
+
+      battleLoad.progress(0.56, 'Assembling rosters');
+      await nextFrame();
+      const playerVisualStartedAt = now();
+      startBattle(specId, resolved, {
+        deferVisuals: true,
+        preBattleHold: true,
+        randomRoster,
+        ...(normalizedGameMode === 'standard' ? {} : { gameMode: normalizedGameMode }),
+      });
+      battleLoad.progress(0.565, 'Drawing tactical map');
+      prepareBattleWorldServices(getWorld());
+      battleLoad.progress(0.57, 'Preparing player vehicle');
+      const playerVisualTiming: VisualLoadTiming = {
+        specId: game.player?.specId || specId,
+        quality: 'preview',
+        startedAt: Math.round(playerVisualStartedAt),
+        buildMs: Math.round(now() - playerVisualStartedAt),
+        prebakeMs: 0,
+      };
+      if (game.player?.visual && game.player.visual === getPedestalVisual()) {
+        const prebakeStartedAt = now();
+        await prebakeSharedTextures(game.player.spec, anisotropy, 'preview', loadYield);
+        playerVisualTiming.prebakeMs = Math.round(now() - prebakeStartedAt);
+      }
+      (host.__VISUAL_LOAD_TIMINGS ||= []).push(playerVisualTiming);
+      const uploadStartedAt = now();
+      if (!game.player) throw new Error('solo battle loading requires a player after setup');
+      // Upload now; deployment owns the first forward compile after final
+      // camouflage and the selected day/night light signature are installed.
+      const playerStageReceipt = await battleVisuals.stageBattleVisualReveal(
+        game.player,
+        loadYield,
+        false,
+        { compilePrograms: false },
+      );
+      playerVisualTiming.uploadMs = Math.round(now() - uploadStartedAt);
+      playerVisualTiming.preUploadYieldMs = playerStageReceipt.preUploadYieldMs;
+      playerVisualTiming.textureUploadMs = playerStageReceipt.textureUploadMs;
+      playerVisualTiming.compileMs = playerStageReceipt.compileMs;
+      playerVisualTiming.postCompileYieldMs = playerStageReceipt.postCompileYieldMs;
+      playerVisualTiming.totalMs = Math.round(now() - playerVisualStartedAt);
+      mark('roster');
+      battleLoad.rosters(rosterRows('player'), rosterRows('enemy'));
+      warmShotCards(game.tanks.map((entity) => entity.specId));
+      battleLoad.progress(0.58, 'Painting vehicles');
+      const openingVisual = (entity: BattleVisualEntity): boolean =>
+        !!(entity as LoadingEntity).isPlayer;
+      if (game.tanks.some((entity) => !entity.visual && openingVisual(entity))) {
+        await nextFrame();
+      }
+      await battleVisuals.stream(openingVisual, loadYield, (fraction) => {
+        battleLoad.progress(0.58 + fraction * 0.30, 'Painting vehicles');
+      });
+      mark('bake');
+
+      battleLoad.progress(0.90, 'Preparing deployment');
+      const {
+        generation,
+        revealPrimed,
+        assertRevealReady,
+      } = await deployment.warm(getCamoSweep());
+      if (typeof assertRevealReady !== 'function') {
+        throw new Error('Solo deployment did not provide required reveal readiness');
+      }
+      assertRevealReady();
+      mark('warm');
+      audio.loadingOn(false);
+      audio.ambientOn(true);
+      battleLoad.progress(1, 'Ready');
+
+      const readyHoldMs = 900 - (now() - shownAt);
+      if (readyHoldMs > 0) await delay(readyHoldMs);
+      assertRevealReady();
+      mark('holdCountdown');
+      trace.totalMs = Math.round(now() - shownAt);
+      host.__BATTLE_LOAD = trace;
+      if (!revealPrimed) {
+        prepareRevealCamera();
+        assertRevealReady();
+        await lifecycle.primeReveal();
+        assertRevealReady();
+      }
+      mark('primeReveal');
+      assertRevealReady();
+      await battleLoad.hide();
+      assertRevealReady();
+      mark('hide');
+      // Reveal is now complete; start a fresh governor baseline using only
+      // playable battle frames, never covered compilation or upload yields.
+      post.setAdaptiveSuspended(false);
+      const loadingElapsedSeconds = (now() - shownAt) / 1000;
+      const visiblePreBattleSeconds = resolveVisiblePreBattleSeconds(
+        preBattleHoldSeconds,
+        loadingElapsedSeconds,
+        minimumVisiblePreBattleSeconds,
+      );
+      trace.loadingElapsedMs = Math.round(loadingElapsedSeconds * 1000);
+      trace.visiblePreBattleS = visiblePreBattleSeconds;
+      trace.expectedClickToControlMs = Math.round(
+        loadingElapsedSeconds * 1000 + visiblePreBattleSeconds * 1000,
+      );
+      openBattle(visiblePreBattleSeconds);
+      scheduleDeferredWarm(generation);
+      mark('open');
+      trace.totalMs = Math.round(now() - shownAt);
+    },
+  };
+}

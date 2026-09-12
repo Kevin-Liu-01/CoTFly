@@ -1,0 +1,550 @@
+/**
+ * Garage-safe roster, battle-visual construction, and deterministic battle
+ * planning. Combat initialization and fixed-step simulation remain in
+ * state.ts so this module can be loaded without ballistics, damage, AI, or
+ * spotting.
+ */
+import { Vector3, type Object3D, type Scene } from 'three';
+import { getSpec, PRODUCTION_TANK_IDS, TANK_IDS } from '../vehicles/specs.ts';
+import { createTank, createTankSteps, type CreateTankOptions } from '../vehicles/fleetFactory.ts';
+import { isBotTankId, rankMatchCandidates } from './matchmaking.ts';
+import { getDeviceTier } from '../engine/quality.ts';
+import { mulberry32 } from './stateCore.ts';
+import type { CombatState } from '../sim/damage.ts';
+import type { MovementContactGeometry, TankState } from '../sim/movement.ts';
+import type { SpecialActionState } from '../sim/specialActionPolicy.ts';
+
+type GroundSampler = (x: number, z: number) => number;
+
+export interface BattleVisual {
+  specId: string;
+  root: Object3D;
+  boundingRadiusM?: number;
+  turretTopWorld(out: Vector3): Vector3 | void;
+  gunPivotWorld(out: Vector3): Vector3 | void;
+  gunMuzzleWorld(out: Vector3, muzzleIndex?: number): Vector3 | void;
+  gunDirWorld(out: Vector3): Vector3 | void;
+  setGroundSampler?(sampler: GroundSampler): void;
+  syncFromState?(state: object): void;
+  setVisible(visible: boolean): void;
+  prepareForSimulation?(): void;
+  resetForGaragePresentation?(): void;
+  resetDestroyed?(): void;
+  hitFlinch?(normalX: number, normalZ: number, strength: number, yaw?: number): void;
+  setTrackState?(module: string, destroyed: boolean): void;
+  stripEra?(plateName: string): void;
+  dispose(): void;
+}
+
+interface EngineContext {
+  scene: Scene;
+}
+
+export interface RosterEntity {
+  id: string;
+  specId: string;
+  spec: ReturnType<typeof getSpec>;
+  team: string;
+  isPlayer: boolean;
+  state: TankState | null;
+  combat: CombatState | null;
+  specialAction: SpecialActionState | null;
+  input: {
+    throttle: number;
+    steer: number;
+    brake: boolean;
+    fire: boolean;
+    aimLocked: boolean;
+    aimPoint: Vector3;
+    shellSlot: number;
+  };
+  visual: BattleVisual | null;
+  rigidGear: boolean;
+  contactGeom: MovementContactGeometry | null;
+  _camoSeed: number;
+  ai: object | null;
+  aiCtl: object | null;
+  _destroyedAnnounced: boolean;
+}
+
+export interface RosterGameState<Entity extends RosterEntity = RosterEntity> {
+  allTanks: Entity[];
+  tankById: Map<string, Entity>;
+  tanks: Entity[];
+  battleCount: number;
+  _engineCtx?: EngineContext;
+  _groundSampler?: GroundSampler | null;
+  _battleVisualPool?: {
+    take(specId: string): BattleVisual | null;
+  };
+}
+
+type RosterPredicate<Entity extends RosterEntity = RosterEntity> = (entity: Entity) => boolean;
+
+interface DebugFlags {
+  forceRoster?: string[];
+  rosterExact?: boolean;
+}
+
+function debugFlags(): DebugFlags | null {
+  const root = globalThis as typeof globalThis & {
+    __DEBUG?: { flags?: DebugFlags };
+  };
+  return root.__DEBUG?.flags || null;
+}
+
+/**
+ * Build every TankEntity record without constructing its visual. Called once
+ * at startup; battles reuse the entities via setupBattle().
+ * @param {object} game createGameState() result
+ * @param {object} engineCtx EngineCtx (§2.8)
+ * @returns {void}
+ */
+export function spawnTanks(game: RosterGameState, engineCtx: EngineContext) {
+  // COMMUNITY TANKS: build entities for the FULL pool (core roster + sourced
+  // community vehicles). A battle fields 8 of them (setupBattle picks the
+  // participants); the rest sit hidden with null state/combat.
+  //
+  // PERF (performance_budget r4): visuals are built LAZILY. Baking a vehicle's
+  // texture set is ~250-350 ms of 2048²-canvas painting per spec, and building
+  // all 17 pool vehicles at boot (a) doubled load-to-ready (4.2 s -> 8.4 s)
+  // and (b) parked ~580 MB of generated maps on the GPU for vehicles that are
+  // not even in the battle (scene texture estimate 716.8 MB vs the 512 MB
+  // ratchet target). Only the staged default battle (screenshot contract) is
+  // built at boot; setupBattle builds the picked participants on entry and
+  // EVICTS the visuals of everyone parked (the per-spec texture cache in
+  // materials.js is refcounted, so eviction frees the canvases/GPU maps).
+  game._engineCtx = engineCtx;   // for lazy visual builds (ensureTankVisual)
+  game._groundSampler = null;    // set by main.ts; applied to lazy visuals too
+  PRODUCTION_TANK_IDS.forEach((specId: string, i: number) => {
+    const spec = getSpec(specId);
+    const ent = {
+      id: specId,
+      specId,
+      spec,
+      team: 'enemy',
+      isPlayer: false,
+      state: null,
+      combat: null,
+      specialAction: null,
+      input: {
+        throttle: 0, steer: 0, brake: false, fire: false,
+        aimLocked: false,
+        aimPoint: new Vector3(), shellSlot: 0,
+      },
+      visual: null,
+      // True when the rendered running gear lacks a complete wheel + belt
+      // terrain-conformance layer. Some comparison GLBs remain rigid; newer
+      // imports publish __glbConformingGear after both layers are discovered.
+      rigidGear: false,
+      // gameplay_feel r7: measured GLB contact footprint (null = procedural
+      // spec fractions). Stamped with rigidGear — see measureContactGeom.
+      contactGeom: null,
+      _camoSeed: 4000 + i,
+      ai: null,
+      aiCtl: null,
+      _destroyedAnnounced: false,
+    };
+    game.allTanks.push(ent);
+    game.tankById.set(ent.id, ent);
+  });
+  // PRODUCTION_TANK_IDS is family ordered; the staged screenshot battle is
+  // the explicitly locked core roster and must not depend on carousel order.
+  game.tanks = TANK_IDS.map((id) => game.tankById.get(id))
+    .filter((entity): entity is RosterEntity => !!entity);
+  // PERF (performance_budget r3): the staged battle's 7 ENEMY bakes are the
+  // single biggest load-to-ready block (~2.2 s of 2048² canvas painting +
+  // SimplexNoise + first-use GPU uploads on the boot path; bootprobe:
+  // heightToNormal 1050 ms + noise 2.2 s). Nobody can see the staged battle
+  // behind the garage screen, so boot builds NONE of it — ensureStagedVisuals()
+  // (idempotent, chunked by the caller) builds the roster post-ready, and
+  // main.ts runs it synchronously from warmCombatPipeline(), which
+  // __SHOTS.set() and startBattle() already invoke before anything can look
+  // at the battlefield.
+  //
+  // LOADING PERF (boot r9): the PLAYER's visual used to be built right here,
+  // on the boot-critical path — a full hero-tier build (~300-400 ms: 2048²
+  // texture bake + geometry + GLB swap kick) for a tank the garage never
+  // renders (the pedestal hero is a separate visual; battle visuals are
+  // guaranteed by warmCombatPipeline before any battlefield frame). It now
+  // streams in with the rest of the staged roster via the post-ready idle
+  // pump — the tick loop already guards `!ent.visual` for exactly this
+  // deferred window.
+}
+
+/**
+ * PERF (performance_budget r3): build any still-missing staged-battle
+ * visuals. Synchronous and idempotent — a no-op once all 8 exist. `limit`
+ * lets the post-ready idle pump build one vehicle per slice so the garage
+ * dwell absorbs ~300 ms chunks instead of one 2 s freeze.
+ * @param {object} game game state
+ * @param {number} [limit] max visuals to build this call (default: all)
+ * @param {?function(object):boolean} [predicate] optional roster subset
+ * @returns {boolean} true when every staged participant has a visual
+ */
+export function ensureStagedVisuals<Entity extends RosterEntity>(
+  game: RosterGameState<Entity>,
+  limit = Infinity,
+  predicate: RosterPredicate<Entity> | null = null,
+): boolean {
+  let built = 0;
+  for (const ent of game.tanks) {
+    if (ent.visual || (predicate && !predicate(ent))) continue;
+    if (built >= limit) return false;
+    ensureTankVisual(game, ent);
+    built++;
+  }
+  return true;
+}
+
+/** Same roster order and construction policy, with private build checkpoints. */
+export function* ensureStagedVisualsSteps<Entity extends RosterEntity>(
+  game: RosterGameState<Entity>,
+  limit = Infinity,
+  predicate: RosterPredicate<Entity> | null = null,
+): Generator<void, boolean, void> {
+  let built = 0;
+  for (const ent of game.tanks) {
+    if (ent.visual || (predicate && !predicate(ent))) continue;
+    if (built >= limit) return false;
+    yield* ensureTankVisualSteps(game, ent);
+    built++;
+  }
+  return true;
+}
+
+/** perf-r4b: the next entity ensureStagedVisuals(game, 1) would build, plus
+ * the texture tier ensureTankVisual will bake it at — the pre-battle loading
+ * loop prebakes that exact entry chunked before the build acquires it.
+ * @param {?function(object):boolean} [predicate] optional roster subset
+ * @returns {?{ent: object, quality: string}} */
+export function nextStagedBake<Entity extends RosterEntity>(
+  game: RosterGameState<Entity>,
+  predicate: RosterPredicate<Entity> | null = null,
+) {
+  const ent = game.tanks.find((e) => !e.visual && (!predicate || predicate(e)));
+  if (!ent) return null;
+  return { ent, quality: textureQualityFor(game, ent) };
+}
+
+/** Visual-only battle geometry policy; garage/Studio use separate builders. */
+export function battleGeometryQuality(
+  playerActor: boolean,
+  deviceTier: string = getDeviceTier(),
+): NonNullable<CreateTankOptions['geometryQuality']> {
+  return !playerActor || deviceTier === 'mobile' ? 'low' : 'high';
+}
+
+/**
+ * PERF (performance_budget r4): build a pool entity's visual on demand (battle
+ * roster selection). Shares the per-spec texture cache with any live instance
+ * of the same spec (garage pedestal, thumbs booth) via materials.js refcounts.
+ * @param {object} game game state
+ * @param {object} ent TankEntity from game.allTanks
+ * @returns {object} the entity's TankVisual
+ */
+export function ensureTankVisual(game: RosterGameState, ent: RosterEntity): BattleVisual {
+  const steps = buildRosterVisual(game, ent, false);
+  let result = steps.next();
+  while (!result.done) result = steps.next();
+  return result.value;
+}
+
+/**
+ * A suspended build owns a private graph. A new round, renderer, roster or
+ * competing visual invalidates it; iterator cancellation releases it before
+ * anything is assigned to the entity or attached to the live scene.
+ */
+export function* ensureTankVisualSteps(
+  game: RosterGameState,
+  ent: RosterEntity,
+): Generator<void, BattleVisual, void> {
+  return yield* buildRosterVisual(game, ent, true);
+}
+
+function* buildRosterVisual(
+  game: RosterGameState,
+  ent: RosterEntity,
+  cooperative: boolean,
+): Generator<void, BattleVisual, void> {
+  if (ent.visual) return ent.visual;
+  const engineCtx = game._engineCtx;
+  if (!engineCtx) throw new Error('battle roster engine context is unavailable');
+  const roster = game.tanks;
+  const battleCount = game.battleCount;
+  const specId = ent.specId;
+  const camoSeed = ent._camoSeed;
+  const state = ent.state;
+  const groundSampler = game._groundSampler;
+  const isPlayer = ent.isPlayer;
+  const firstParticipant = roster[0];
+  const assertCurrent = () => {
+    if (game._engineCtx !== engineCtx || game.tanks !== roster ||
+        game.battleCount !== battleCount || !roster.includes(ent) ||
+        ent.specId !== specId || ent._camoSeed !== camoSeed ||
+        ent.state !== state || ent.isPlayer !== isPlayer ||
+        roster[0] !== firstParticipant || game._groundSampler !== groundSampler || ent.visual) {
+      throw new Error('battle visual construction was superseded');
+    }
+  };
+  assertCurrent();
+  const playerActor = ent.isPlayer || ent === roster[0];
+  const deviceTier = getDeviceTier();
+  const mobileBot = !playerActor && deviceTier === 'mobile';
+  const battleBot = !playerActor;
+  let visual: BattleVisual | null = battleBot
+    ? game._battleVisualPool?.take(specId) || null : null;
+  let published = false;
+  // for-of supplies IteratorClose on cancellation, including when a caller's
+  // awaited frame gate rejects. The factory still owns its unfinished graph;
+  // only its completed return transfers that ownership to this transaction.
+  const construct = function* (): Generator<void, void, void> {
+    // Exact existing battle policy: preview player paint, authored bot detail,
+    // articulation-local static batches. No quality tier is reduced here.
+    const options: CreateTankOptions = {
+      camoSeed,
+      quality: textureQualityFor(game, ent),
+      geometryQuality: battleGeometryQuality(playerActor, deviceTier),
+      batchStatic: true,
+      battleDetailLod: battleBot && !mobileBot,
+      // Battles use the checked anatomy and live ERA clusters, not a fresh
+      // geometric audit. Keep the detailed fitted-surface report in authoring.
+      eraVisualBindingReceipt: false,
+    };
+    visual = cooperative
+      ? yield* createTankSteps(specId, engineCtx, options)
+      : createTank(specId, engineCtx, options);
+  };
+  try {
+    if (!visual) {
+      for (const step of construct()) {
+        assertCurrent();
+        yield step;
+        assertCurrent();
+      }
+    }
+    if (!visual) throw new Error('battle visual construction returned no visual');
+    assertCurrent();
+    // Preserve the established synchronous binding order after completion.
+    ent.visual = visual;
+    engineCtx.scene.add(visual.root);
+    if (game._groundSampler && visual.setGroundSampler) {
+      visual.setGroundSampler(game._groundSampler);
+    }
+    if (ent.state && visual.syncFromState) {
+      visual.syncFromState(ent.state);
+      visual.setVisible(true);
+    }
+    published = true;
+    return visual;
+  } finally {
+    if (visual && !published) {
+      if (ent.visual === visual) ent.visual = null;
+      visual.root.removeFromParent();
+      visual.dispose();
+    }
+  }
+}
+
+// PERF r3: specs whose closeup contract shots (tank_closeup_*) frame the
+// vehicle at 3-6 m — always hero texture tier regardless of roster role.
+const HERO_TEX_SPECS = new Set(['m1a2', 'tiger1', 't34_85', 't90m', 'leo2a7']);
+
+function textureQualityFor(game: RosterGameState, ent: RosterEntity): NonNullable<CreateTankOptions['quality']> {
+  // The first participant is the player before setupBattle stamps isPlayer.
+  // Mobile keeps that close camera subject at hero resolution, but distant
+  // bots use the AI tier. Garage selection still upgrades its shared entry.
+  // 1024/512 is still finer than the chase-camera projection, while the old
+  // 2048/1024 player bake created the single largest cold-entry task. The
+  // garage uses this same dedicated close-up preview tier.
+  if (ent.isPlayer || ent === game.tanks[0]) return 'preview';
+  return getDeviceTier() !== 'mobile' && HERO_TEX_SPECS.has(ent.specId)
+    ? 'preview' : 'ai';
+}
+
+// Matchmaking and every tier badge consume the same canonical table in
+// vehicles/tier.ts. This prevents a newly added tank from showing one tier in
+// the garage while being matched as another.
+
+const BATTLE_ROSTER_SEED = 0x51e57;
+
+function shuffleBattleCandidates(
+  candidates: RosterEntity[],
+  battleOrdinal: number,
+): RosterEntity[] {
+  const rng = mulberry32(BATTLE_ROSTER_SEED ^ (battleOrdinal * 2654435761));
+  for (let index = candidates.length - 1; index > 0; index--) {
+    const swapIndex = (rng() * (index + 1)) | 0;
+    [candidates[index], candidates[swapIndex]] =
+      [candidates[swapIndex], candidates[index]];
+  }
+  return candidates;
+}
+
+function shuffledBotPool(
+  game: RosterGameState,
+  player: RosterEntity,
+  battleOrdinal: number,
+  excluded: readonly RosterEntity[] = [],
+): RosterEntity[] {
+  const candidates = game.allTanks.filter((entity) =>
+    entity !== player && !excluded.includes(entity) && isBotTankId(entity.specId));
+  return shuffleBattleCandidates(candidates, battleOrdinal);
+}
+
+function topUpForcedRoster(
+  game: RosterGameState,
+  player: RosterEntity,
+  list: RosterEntity[],
+  enemySlots: number,
+  battleOrdinal: number,
+): void {
+  const pool = shuffledBotPool(game, player, battleOrdinal, list);
+  for (const entity of pool) {
+    if (list.length >= enemySlots) return;
+    list.push(entity);
+  }
+}
+
+function forcedBattleCandidates(
+  game: RosterGameState,
+  player: RosterEntity,
+  randomize: boolean,
+  enemySlots: number,
+  battleOrdinal: number,
+): RosterEntity[] | null {
+  const flags = debugFlags();
+  const forced = flags?.forceRoster;
+  if (!Array.isArray(forced) || forced.length === 0) return null;
+  const list = forced
+    .map((id) => game.tankById.get(id))
+    .filter((entity): entity is RosterEntity => !!entity && entity !== player);
+  if (randomize && !flags?.rosterExact && list.length < enemySlots) {
+    topUpForcedRoster(game, player, list, enemySlots, battleOrdinal);
+  }
+  return list;
+}
+
+function stagedBattleCandidates(
+  game: RosterGameState,
+  playerSpecId: string,
+): RosterEntity[] {
+  // The foundational TANK_IDS array can contract when retired historical
+  // vehicles are removed from production. Screenshot/boot staging still
+  // needs a complete eight-vehicle battle, so draw from the authoritative
+  // production roster just like real matchmaking does.
+  return PRODUCTION_TANK_IDS
+    .filter((id) => id !== playerSpecId)
+    .map((id) => game.tankById.get(id))
+    .filter((entity): entity is RosterEntity => !!entity);
+}
+
+function randomBattleCandidates(
+  game: RosterGameState,
+  player: RosterEntity,
+  battleOrdinal: number,
+): RosterEntity[] {
+  return rankMatchCandidates(
+    shuffledBotPool(game, player, battleOrdinal),
+    player,
+  );
+}
+
+/**
+ * COMMUNITY TANKS: pick this battle's participants — the player plus the
+ * non-player slots. BATTLE-AI r7 (7v7): every RANDOM battle (all garage
+ * entries go through startBattle's random:true) fields 13 non-players so the
+ * teams split player+6 vs 7. The deterministic staged battle (boot /
+ * screenshot contract) keeps the core 8 — killcam_xray and the establishing
+ * shots are framed against that roster and no player ever sees it as a
+ * battle. `randomize` shuffles the whole pool (seeded per battle) so random
+ * rosters include community vehicles.
+ * @returns {object[]} TankEntity[] (player's entity included)
+ */
+export function pickBattleParticipants(
+  game: RosterGameState,
+  playerSpecId: string,
+  randomize: boolean,
+  battleOrdinal = game.battleCount,
+): RosterEntity[] {
+  const player = game.tankById.get(playerSpecId);
+  if (!player) throw new Error(`unknown battle vehicle: ${playerSpecId}`);
+  const enemySlots = randomize ? 13 : 7;
+  // PERF (performance_budget r3, certification determinism): an explicit
+  // debug roster bypasses the seeded shuffle/era matchmaking so the perf
+  // gate measures a PINNED worst-case lineup (all multi-mesh GLB heavies)
+  // instead of whatever the pool happens to draw — the round-2 critic
+  // measured 1095 worst-frame draw calls on one random roster and 470 on
+  // another, on the identical build. Debug/tooling only (perfprobe).
+  const forced = forcedBattleCandidates(
+    game, player, randomize, enemySlots, battleOrdinal,
+  );
+  if (forced) return [player, ...forced.slice(0, enemySlots)];
+
+  let others: RosterEntity[];
+  if (randomize) {
+    // Curated matchmaking: same-era tanks always fill first, while their
+    // seeded order lets the production catalog rotate through bot seats. A
+    // cross-era tank is an emergency fallback only when
+    // the production catalog cannot fill all 13 non-player slots;
+    // picking the Random battlefield no longer turns WWII vs modern back on.
+    others = randomBattleCandidates(game, player, battleOrdinal);
+  } else {
+    // deterministic staged battle (boot, screenshot contract): core roster
+    others = stagedBattleCandidates(game, playerSpecId);
+  }
+  return [player, ...others.slice(0, enemySlots)];
+}
+
+/**
+ * Resolve the next battle's deterministic participant ids without mutating
+ * game state. Battle entry uses this while the battlefield chunk/build is in
+ * flight so every required procedural profile can transfer and parse in
+ * parallel instead of waiting behind world construction.
+ */
+export function planBattleParticipantIds(
+  game: RosterGameState,
+  playerSpecId: string,
+  randomize = true,
+) {
+  return pickBattleParticipants(game, playerSpecId, randomize, game.battleCount + 1)
+    .map((entity) => entity.specId);
+}
+
+export function autoCamoIdsForBattle(
+  participants: RosterEntity[],
+  playerSpecId: string,
+  mapId: string,
+  randomize: boolean,
+  battleOrdinal: number,
+) {
+  if (!randomize) return [];
+  const camoRng = mulberry32(8600 + battleOrdinal);
+  const forceAuto = mapId === 'winter' || mapId === 'desert';
+  const autoIds = [];
+  for (const ent of participants) {
+    if (ent.specId === playerSpecId) continue;
+    const roll = camoRng();
+    if (forceAuto || roll < 0.6) autoIds.push(ent.specId);
+  }
+  return autoIds;
+}
+
+/**
+ * Resolve the next battle's deterministic bot AUTO-camouflage overrides
+ * without mutating game or material state. The loading coordinator uses this
+ * to paint the exact roster while the independent world is still building;
+ * setupBattle consumes the same helper after it commits the battle ordinal.
+ */
+export function planBattleCamoOverrides(
+  game: RosterGameState,
+  playerSpecId: string,
+  mapId: string,
+  randomize = true,
+) {
+  const battleOrdinal = game.battleCount + 1;
+  const participants = pickBattleParticipants(game, playerSpecId, randomize, battleOrdinal);
+  return autoCamoIdsForBattle(
+    participants, playerSpecId, mapId, randomize, battleOrdinal,
+  );
+}

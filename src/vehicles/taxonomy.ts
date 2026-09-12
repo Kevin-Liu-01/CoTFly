@@ -1,0 +1,188 @@
+// Canonical public vehicle taxonomy and private simulation-role vocabulary.
+//
+// Era is the only fleet category exposed to players. `role` exists solely for
+// mechanics that genuinely need a platform distinction (AI doctrine, spotting
+// baselines, weapon-feed behavior); it is not a gallery or garage category.
+
+import type { RuntimeValue } from '../runtimeTypes.ts';
+
+export const VEHICLE_ERAS = Object.freeze({
+  INTERWAR: 'interwar',
+  WORLD_WAR_II: 'ww2',
+  COLD_WAR: 'cold-war',
+  MODERN: 'modern',
+  NEXT_GENERATION: 'next-generation',
+} as const);
+
+export type VehicleEra = typeof VEHICLE_ERAS[keyof typeof VEHICLE_ERAS];
+
+export const VEHICLE_ERA_ORDER: readonly VehicleEra[] = Object.freeze([
+  VEHICLE_ERAS.INTERWAR,
+  VEHICLE_ERAS.WORLD_WAR_II,
+  VEHICLE_ERAS.COLD_WAR,
+  VEHICLE_ERAS.MODERN,
+  VEHICLE_ERAS.NEXT_GENERATION,
+]);
+
+export interface VehicleEraMetadata {
+  label: string;
+  shortLabel: string;
+}
+
+export const VEHICLE_ERA_META: Readonly<Record<VehicleEra, VehicleEraMetadata>> = Object.freeze({
+  [VEHICLE_ERAS.INTERWAR]: Object.freeze({ label: 'Interwar', shortLabel: 'Interwar' }),
+  [VEHICLE_ERAS.WORLD_WAR_II]: Object.freeze({ label: 'World War II', shortLabel: 'WWII' }),
+  [VEHICLE_ERAS.COLD_WAR]: Object.freeze({ label: 'Cold War', shortLabel: 'Cold War' }),
+  [VEHICLE_ERAS.MODERN]: Object.freeze({ label: 'Modern', shortLabel: 'Modern' }),
+  [VEHICLE_ERAS.NEXT_GENERATION]: Object.freeze({ label: 'Next Generation', shortLabel: 'Next Gen' }),
+});
+
+const ERA_VEHICLE_IDS: Readonly<Record<VehicleEra, readonly string[]>> = Object.freeze({
+  [VEHICLE_ERAS.INTERWAR]: Object.freeze([
+    'leichttraktor',
+  ]),
+  [VEHICLE_ERAS.WORLD_WAR_II]: Object.freeze([
+    'm4a3e8', 'tiger1', 't34_85', 'is2', 'panther_g', 'is3', 'is3_bergman', 't34_85_cad',
+    'newc_tiger', 'newc_pziii', 'pziii_konserwa', 'q_heavy', 'kv2', 'tiger2',
+    'sherman_jumbo', 'jagdtiger', 'jpz_e100', 'jpz_e100_x', 'sturmtiger', 't95', 't30',
+    'is6b', 'is1', 't44', 'comet', 'challenger_cruiser', 'isu152', 'isu122s',
+    'm26_pershing', 'm45_patton',
+  ]),
+  [VEHICLE_ERAS.COLD_WAR]: Object.freeze([
+    'amx30_x', 'amx40_x', 't62mv1_x',
+    'm1a1_x', 'm1a1ha_x',
+    'challenger1_x',
+    't72bu_x',
+    'chieftain5_x',
+    't62mv1', 't64bv1', 't72b_1987', 't72bu', 't80', 't80b', 't80bv',
+    't80u', 'strv81', 'udes03', 'strv103a', 'strv103', 'is7', 'object279',
+    'chieftain5', 'chieftain_mk10', 'challenger1', 'fv4034', 'stb1', 'type74', 'type90',
+    'type90a', 'm2a2_bradley', 'bmp1', 'bmp2', 'bmp3', 'type89', 'carro45t',
+    'amx40', 'leo1a5', 'leopard2_proto', 'leo2a4', 'mbt70', 'm1a1', 'fv510',
+    'm1a1ha', 'm60a1', 'merkava1b', 'merkava2b', 'merkava2d', 'fv510_milan',
+    't54', 'amx30', 'amx30b2', 'm48', 'm60a2', 'm60a3', 'vickers_mk1',
+    'centurion3', 'centurion5', 'charioteer', 'm46_patton', 'm47_patton',
+    'type59', 'ztz85_iii', 'bwp1', 'marder1a3', 'm551_sheridan',
+  ]),
+  [VEHICLE_ERAS.MODERN]: Object.freeze([
+    'leo2a6_x', 'ariete_c1_x', 'strv122_x', 't72b3m_x',
+    't90_x', 't90a_burlak_x', 't90ms_x',
+    'k1a1_x',
+    'leclerc_x', 'leclerc_classic_x', 't72b_1987_x', 't80u_x', 'chieftain_mk10_x', 't72b3_x', 'type10_x', 'type90_x',
+    'leo2a7v_x', 'leo2a6m_x', 'leo2a4m_x', 'leo2a5_x', 'merkava4_x', 'merkava3d_x',
+    'k2_x', 't90a_x', 't90a_vladimir_x', 't90m_x', 't90sm_x',
+    'm1a2_x', 'm1a2_tusk_x', 'm1a2_sepv2_x', 'm1a2_sepv3_x', 'ua_m1a1_x',
+    'm1a2_legacy', 'm1a2', 't72b3m', 'pt91m', 't84', 't90', 't90a',
+    't90a_vladimir', 't90a_burlak', 't90sm', 't90ms', 't90m', 't90m_proryv', 't72b3',
+    'leo2a7', 'strv122', 'challenger2', 'challenger2e', 'ua_challenger2', 'k2', 'k1a1', 'type10', 'recon_tank',
+    'spz_puma', 'spz_puma_s1', 'ariete', 'ariete_c1', 'leo2a4_otco', 'leo2a4m', 'leo2a5', 'leo2a5_a5nl',
+    'leo2a6', 'leo2a6m', 'leo2a6_ua', 'leo2_revolution_proto', 'leo2_revolution', 'leo2a7v', 'leclerc', 'leclerc_xlr',
+    'amx56', 'type99a', 'ztz99a2_prototype', 'ztz99a2', 'vt4a1', 'merkava4', 'm1a2_tusk', 'm1a2_sepv2',
+    'm1a2_sepv3', 'merkava3c', 'merkava3d', 'merkava4b', 't72m1_jaguar',
+    'pt91_twardy', 'k2b', 'bmp3_rok', 'ua_t64bv', 'ua_t80bv', 'ua_t80u_kursk',
+    'ua_t84_oplot_m', 'ua_m1a1', 'ua_m2a3_bradley', 'bmpt_terminator2',
+    'm3a3_bradley', 'bmpt_t90', 'm1128', 'm1296', 'cv90',
+  ]),
+  [VEHICLE_ERAS.NEXT_GENERATION]: Object.freeze([
+    'kf51_x', 't14_x',
+    'challenger_3', 'challenger_3x', 'type10b', 'ariete_c2', 't14', 'kf51', 'kf51b', 'm1a3', 'abramsx',
+    'pl01', 'pl01_105', 'upior', 'm551a1_tts', 'type89_light_tiger', 'cv90_mkiv',
+  ]),
+});
+
+const ERA_BY_VEHICLE_ID = new Map<string, VehicleEra>();
+for (const era of VEHICLE_ERA_ORDER) {
+  for (const id of ERA_VEHICLE_IDS[era]) {
+    if (ERA_BY_VEHICLE_ID.has(id)) throw new Error(`Duplicate vehicle era assignment: ${id}`);
+    ERA_BY_VEHICLE_ID.set(id, era);
+  }
+}
+
+export const VEHICLE_ROLES = Object.freeze([
+  'light', 'medium', 'heavy', 'td', 'mbt', 'ifv', 'spg',
+] as const);
+
+export type VehicleRole = typeof VEHICLE_ROLES[number];
+
+const VEHICLE_ROLE_SET = new Set<string>(VEHICLE_ROLES);
+
+export function vehicleEraForId(id: RuntimeValue): VehicleEra | null {
+  return ERA_BY_VEHICLE_ID.get(String(id || '')) || null;
+}
+
+export function vehicleEraLabel(era: RuntimeValue, { short = false }: { short?: boolean } = {}): string {
+  const meta = typeof era === 'string'
+    ? VEHICLE_ERA_META[era as VehicleEra]
+    : undefined;
+  return meta ? (short ? meta.shortLabel : meta.label) : 'Unclassified Era';
+}
+
+// Era-to-i18n-key mapping. The garage and gallery display the era as a short
+// tag on vehicle cards and as a long label in the dossier header. When the
+// i18n catalog has a translation, callers should prefer `vehicleEraLabelI18n`.
+const ERA_I18N: Readonly<Record<string, { short: string; long: string }>> = Object.freeze({
+  'next-generation': Object.freeze({ short: 'garage.era.nextGen', long: 'garage.era.nextGen' }),
+  modern: Object.freeze({ short: 'garage.era.modern', long: 'garage.era.modern' }),
+  'cold-war': Object.freeze({ short: 'garage.era.coldWar', long: 'garage.era.coldWar' }),
+  ww2: Object.freeze({ short: 'garage.era.worldWar2', long: 'garage.era.worldWar2' }),
+  interwar: Object.freeze({ short: 'garage.era.interwar', long: 'garage.era.interwar' }),
+});
+
+/** Returns a translated era label when an i18n key exists, else falls back
+ *  to the canonical English label. */
+export function vehicleEraLabelI18n(
+  era: RuntimeValue,
+  translate: (key: string) => string,
+  options: { short?: boolean } = {},
+): string {
+  if (typeof era !== 'string') return vehicleEraLabel(era, options);
+  const keyMap = ERA_I18N[era];
+  if (!keyMap) return vehicleEraLabel(era, options);
+  return translate(keyMap[options.short ? 'short' : 'long']);
+}
+
+export function compareVehicleEras(a: VehicleEra, b: VehicleEra): number {
+  return VEHICLE_ERA_ORDER.indexOf(a) - VEHICLE_ERA_ORDER.indexOf(b);
+}
+
+/** Postwar vehicle technologies shared by Cold War and newer platforms. */
+export function isPostwarVehicleEra(era: RuntimeValue): boolean {
+  return era === VEHICLE_ERAS.COLD_WAR
+    || era === VEHICLE_ERAS.MODERN
+    || era === VEHICLE_ERAS.NEXT_GENERATION;
+}
+
+/** Modern presentation family used by contemporary and demonstrator designs. */
+export function isContemporaryVehicleEra(era: RuntimeValue): boolean {
+  return era === VEHICLE_ERAS.MODERN || era === VEHICLE_ERAS.NEXT_GENERATION;
+}
+
+export function isVehicleRole(role: RuntimeValue): role is VehicleRole {
+  return typeof role === 'string' && VEHICLE_ROLE_SET.has(role);
+}
+
+export interface VehicleTaxonomySpec {
+  id?: RuntimeValue;
+  role?: RuntimeValue;
+  era?: RuntimeValue;
+  class?: RuntimeValue;
+}
+
+/**
+ * Seal one registered spec against the canonical taxonomy.
+ * Throws on drift so a newly registered tank cannot silently fall into a
+ * generic UI bucket or reintroduce the retired `class` field.
+ */
+export function applyVehicleTaxonomy<T extends VehicleTaxonomySpec>(
+  spec: T,
+): T & { era: VehicleEra; role: VehicleRole } {
+  if (!spec?.id) throw new Error('Cannot classify a vehicle without an id');
+  if (Object.prototype.hasOwnProperty.call(spec, 'class')) {
+    throw new Error(`${spec.id}: retired vehicle class field is not allowed; use mechanical role`);
+  }
+  const era = vehicleEraForId(spec.id);
+  if (!era) throw new Error(`${spec.id}: missing canonical vehicle era assignment`);
+  if (!isVehicleRole(spec.role)) throw new Error(`${spec.id}: invalid mechanical role ${String(spec.role)}`);
+  spec.era = era;
+  return spec as T & { era: VehicleEra; role: VehicleRole };
+}

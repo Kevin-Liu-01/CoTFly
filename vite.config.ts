@@ -1,0 +1,223 @@
+// vite.config.ts — LOADING PERF (boot r9).
+//
+// The dev-server module graph was the single biggest boot item (~1.0 s of the
+// ~3.5 s headless boot): ~76 ES modules discovered one import-depth level at a
+// time (fetch → parse → discover → fetch ...), each paying its transform on
+// first request. Production builds bundle all of this away, so the fix is
+// dev-only and lives here rather than in app code:
+//
+//  - server.warmup pre-transforms the src modules at server start, so the
+//    browser's requests hit a warm cache instead of serializing esbuild work;
+//  - a dev-only transformIndexHtml hook injects <link rel="modulepreload">
+//    for main.ts's reachable STATIC import graph (relative paths only),
+//    flattening the depth-first discovery waterfall into one parallel fetch
+//    wave. Dynamic imports are deliberately excluded: preloading them would
+//    defeat the source-geometry/model-loader lazy boundaries and recreate the
+//    production boot problem in development.
+//  - optimizeDeps.include pins the three.js prebundle so the first page hit
+//    never triggers a mid-boot re-optimize (probe servers inherit this too).
+//
+// Build output is unaffected: the plugin only applies to `vite dev`/`serve`,
+// and every headless tool that calls createServer() inherits this config.
+import { readFileSync } from 'node:fs';
+import type { ServerResponse } from 'node:http';
+import { dirname, resolve, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { defineConfig, type Connect } from 'vite';
+import { renderProductStats } from './src/productStats.ts';
+import { localizeHtmlDocument } from './src/presentation/localizedHtml.ts';
+import { publicRouteForEntry, resolveLocalePath } from './src/ui/localeRouting.ts';
+import { replaceAppVersionTokens, resolveAppVersion } from './tools/appVersion.ts';
+import { isExistingProjectDocument } from './tools/existing-document-route.ts';
+
+const appVersion = resolveAppVersion(dirname(fileURLToPath(import.meta.url)));
+
+/**
+ * Transitive relative-import closure starting at src/main.ts.
+ * Cheap regex scan (static `import ... from '...'`, bare `import '...'`, and
+ * `export ... from '...'`); only ./ and ../
+ * specifiers are followed — package imports live in the prebundle.
+ * @param {string} root project root
+ * @returns {string[]} root-absolute URL paths, entry first
+ */
+function reachableSrcModules(root: string): string[] {
+  const entry = resolve(root, 'src/main.ts');
+  const seen = new Set<string>();
+  const queue: string[] = [entry];
+  const specRe = /(?:import|export)\s+(?:[^'"]*?\sfrom\s*)?['"]([^'"]+)['"]/g;
+  while (queue.length) {
+    const file = queue.pop();
+    if (!file) continue;
+    if (seen.has(file)) continue;
+    let text;
+    try { text = readFileSync(file, 'utf8'); } catch (_) { continue; }
+    seen.add(file);
+    if (file.endsWith('.json')) continue;
+    for (const m of text.matchAll(specRe)) {
+      const spec = m[1];
+      if (!spec || !spec.startsWith('.')) continue;
+      queue.push(resolve(dirname(file), spec));
+    }
+  }
+  return [...seen].map((f) => '/' + relative(root, f).replace(/\\/g, '/'));
+}
+
+/**
+ * Pretty routes (owner: "/studio", "/gallery", and "/home"). Pure URL rewrites — the
+ * browser's address bar keeps the pretty path while the server serves the
+ * real file. /studio boots the game (index.html; src/game/studio.ts sees the
+ * pathname and auto-enters), /home serves the showcase page (home.html — a
+ * real build entry, so /home also ships in dist; vercel.json carries the
+ * same two rewrites for the deployed host). Queries pass through
+ * (/studio?map=desert works).
+ */
+const rewriteRoutes = (documentRoot: string): Connect.NextHandleFunction => (req, res, next) => {
+  const url = req.url || '';
+  const qi = url.indexOf('?');
+  const path = qi === -1 ? url : url.slice(0, qi);
+  const query = qi === -1 ? '' : url.slice(qi);
+  const localePath = resolveLocalePath(path);
+  const localizedQuery = localePath.locale ? `${query}${query ? '&' : '?'}_cot_locale=${localePath.locale}` : query;
+  if (localePath.pathname === '/surface-studio') {
+    const params = new URLSearchParams(query.startsWith('?') ? query.slice(1) : query);
+    if (!params.has('layer')) params.set('layer', 'markup');
+    res.statusCode = 308;
+    res.setHeader('Location', `${localePath.locale ? '/cn' : ''}/gallery?${params.toString()}`);
+    res.end();
+    return;
+  }
+  if (path === '/fly' || path === '/fly/' || path === '/') {
+    req.url = '/fly.html' + query;
+  } else if (path === '/404.html') {
+    forceNotFoundStatus(res);
+    req.url = '/404.html' + query;
+  } else if (localePath.route) {
+    if (localePath.route.id === 'notFound') forceNotFoundStatus(res);
+    req.url = `/${localePath.route.sourceHtml}${localizedQuery}`;
+  }
+  else if (path !== '/' && !path.startsWith('/api/') &&
+    req.headers.accept?.includes('text/html') && !isExistingProjectDocument(path,documentRoot)) {
+    forceNotFoundStatus(res);
+    req.url = '/404.html' + query;
+  }
+  next();
+};
+
+/** Keep Vite's static-file layer from replacing an intentional 404 with 200. */
+function forceNotFoundStatus(res: ServerResponse): void {
+  res.statusCode = 404;
+  const writeHead = res.writeHead;
+  res.writeHead = ((...args: Parameters<typeof res.writeHead>) => {
+    args[0] = 404;
+    return writeHead.apply(res, args);
+  }) as typeof res.writeHead;
+}
+
+export default defineConfig({
+  // Static wreck workers retain the same on-demand fleet-family imports.
+  worker: { format: 'es' },
+  plugins: [
+    {
+      name: 'cot-app-version',
+      enforce: 'pre',
+      transformIndexHtml(html) {
+        return replaceAppVersionTokens(html, appVersion);
+      },
+    },
+    {
+      name: 'cot-product-stats',
+      transformIndexHtml(html) {
+        return renderProductStats(html);
+      },
+    },
+    {
+      name: 'cot-locale-documents',
+      enforce: 'post',
+      transformIndexHtml(html, ctx) {
+        const original = ctx?.originalUrl || '';
+        const requestUrl = new URL(original || '/', 'http://vite.local');
+        const requestedLocale = requestUrl.searchParams.get('_cot_locale');
+        const localePath = resolveLocalePath(requestUrl.pathname);
+        const sourceHtml = resolve(ctx?.filename || '').split('/').at(-1) || '';
+        if (sourceHtml === 'fly.html') return html;
+        const route = localePath.route ?? publicRouteForEntry(sourceHtml);
+        if (!route) return html;
+        const locale = requestedLocale === 'zh-CN' || localePath.locale === 'zh-CN' ? 'zh-CN' : 'en-US';
+        return localizeHtmlDocument(html, route, locale);
+      },
+    },
+    {
+      name: 'cot-routes',
+      configureServer(server) {
+        server.middlewares.use(rewriteRoutes(server.config.root));
+      },
+      configurePreviewServer(server) {
+        server.middlewares.use(rewriteRoutes(resolve(server.config.root,server.config.build.outDir)));
+      },
+    },
+    {
+      name: 'cot-dev-modulepreload',
+      apply: 'serve',
+      transformIndexHtml(_html, ctx) {
+        // This optimization belongs only to the playable game entry. Vite
+      // invokes HTML transforms for every multi-page input; injecting the
+      // game graph into /home, /docs or /gallery makes a presentation visit
+        // visit download the complete simulation and fleet source tree.
+        if (resolve(ctx?.filename || '') !== resolve(process.cwd(), 'index.html')) return [];
+        return reachableSrcModules(process.cwd()).map((href) => ({
+          tag: 'link',
+          attrs: { rel: 'modulepreload', href },
+          injectTo: 'head',
+        }));
+      },
+    },
+  ],
+  server: {
+    warmup: {
+      // same reachable set as the preload links: pre-transform in parallel at
+      // server start, so the browser's preload wave hits a warm cache
+      clientFiles: reachableSrcModules(process.cwd()).map((u) => '.' + u),
+    },
+  },
+  build: {
+    rollupOptions: {
+      // Multi-page build: the game and independently bootable public/tools
+      // surfaces. Presentation routes never inherit the playable boot graph.
+      input: {
+        main: resolve(process.cwd(), 'index.html'),
+        fly: resolve(process.cwd(), 'fly.html'),
+        notFound: resolve(process.cwd(), '404.html'),
+        home: resolve(process.cwd(), 'home.html'),
+        docs: resolve(process.cwd(), 'docs.html'),
+        docsTopic: resolve(process.cwd(), 'docs-topic.html'),
+        docsBuild: resolve(process.cwd(), 'docs-build.html'),
+        docsModels: resolve(process.cwd(), 'docs-models.html'),
+        docsSimulation: resolve(process.cwd(), 'docs-simulation.html'),
+        docsVehicles: resolve(process.cwd(), 'docs-vehicles.html'),
+        docsRendering: resolve(process.cwd(), 'docs-rendering.html'),
+        docsPerformance: resolve(process.cwd(), 'docs-performance.html'),
+        docsWorlds: resolve(process.cwd(), 'docs-worlds.html'),
+        docsAi: resolve(process.cwd(), 'docs-ai.html'),
+        docsMultiplayer: resolve(process.cwd(), 'docs-multiplayer.html'),
+        docsAudio: resolve(process.cwd(), 'docs-audio.html'),
+        docsInterface: resolve(process.cwd(), 'docs-interface.html'),
+        docsStudio: resolve(process.cwd(), 'docs-studio.html'),
+        gallery: resolve(process.cwd(), 'gallery.html'),
+      },
+    },
+  },
+  optimizeDeps: {
+    entries: [
+      'index.html', '404.html', 'home.html', 'docs.html', 'docs-topic.html', 'gallery.html',
+      'docs-build.html', 'docs-models.html',
+      'docs-simulation.html', 'docs-vehicles.html', 'docs-rendering.html',
+      'docs-performance.html', 'docs-worlds.html', 'docs-ai.html',
+      'docs-multiplayer.html', 'docs-audio.html', 'docs-interface.html', 'docs-studio.html',
+    ],
+    include: [
+      'three',
+      'three/examples/jsm/utils/BufferGeometryUtils.js',
+      'three/examples/jsm/geometries/RoundedBoxGeometry.js',
+    ],
+  },
+});

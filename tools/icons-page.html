@@ -1,0 +1,1103 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>tank asset generator</title></head>
+<body>
+<script type="module">
+// Offscreen studio for tools/genIcons.mjs. It renders the shipped model and
+// derives technical diagrams from the same armor/module data used in combat.
+import * as THREE from 'three';
+import { createTank } from '/src/vehicles/tankFactory.ts';
+import { ALL_TANK_IDS, DEVELOPMENT_TANK_IDS, getSpec } from '/src/vehicles/specs.ts';
+import {
+  TANK_ASSET_SCHEMA_VERSION, TANK_ASSET_VIEWS, geometryFingerprint, metadataFingerprint,
+  requiredTankAssetFiles, tankAssetFile, tankAssetMetadata,
+} from '/src/vehicles/tankAssets.ts';
+import { auditTankAppearance } from '/src/vehicles/appearanceAudit.ts';
+import { drawNationalInsignia, drawVehicleDesignation } from '/src/vehicles/vehicleMarkings.ts';
+import { createInspectionOverlay, inspectionLegend } from '/src/gallery/overlays.ts';
+import { portraitSideRatio } from '/tools/portrait-camera.ts';
+import {
+  auditPortraitPixels,
+  directPortraitPlacement,
+  measurePortraitCoreBounds,
+} from '/src/ui/portraitFraming.ts';
+
+const BASE = 512;
+const SS = 2;
+const MARGIN = 1.07;
+
+const renderer = new THREE.WebGLRenderer({
+  antialias: true, alpha: true, preserveDrawingBuffer: true,
+});
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.18;
+renderer.setClearColor(0x000000, 0);
+
+const scene = new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x77818b, 1.55));
+const key = new THREE.DirectionalLight(0xfff6ea, 3.05);
+key.position.set(-4, 6, 5);
+const fill = new THREE.DirectionalLight(0xe8f0ff, 1.25);
+fill.position.set(5, 2.5, 1);
+const rim = new THREE.DirectionalLight(0xffffff, 1.55);
+rim.position.set(1.5, 4, -6);
+scene.add(key, fill, rim);
+
+function capture(cam, w, h) {
+  renderer.setSize(w * SS, h * SS, false);
+  renderer.render(scene, cam);
+  const out = document.createElement('canvas');
+  out.width = w; out.height = h;
+  const c = out.getContext('2d');
+  c.imageSmoothingEnabled = true;
+  c.imageSmoothingQuality = 'high';
+  c.drawImage(renderer.domElement, 0, 0, w, h);
+  return out;
+}
+
+function silhouette(srcCanvas, outW, outH) {
+  const full = document.createElement('canvas');
+  full.width = srcCanvas.width; full.height = srcCanvas.height;
+  const fc = full.getContext('2d');
+  fc.drawImage(srcCanvas, 0, 0);
+  const img = fc.getImageData(0, 0, full.width, full.height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const a = d[i + 3];
+    d[i] = 255; d[i + 1] = 255; d[i + 2] = 255;
+    d[i + 3] = a < 8 ? 0 : Math.min(255, a * 1.8);
+  }
+  fc.putImageData(img, 0, 0);
+  const out = document.createElement('canvas');
+  out.width = outW; out.height = outH;
+  const c = out.getContext('2d');
+  c.imageSmoothingEnabled = true;
+  c.imageSmoothingQuality = 'high';
+  c.drawImage(full, 0, 0, outW, outH);
+  return out;
+}
+
+/**
+ * Give every garage portrait one presentation datum: the visible tank is
+ * centered horizontally and its track contact line lands on a shared
+ * baseline. The former square crop stayed centered on the camera frame, so
+ * antennas, searchlights and family-specific turret height moved otherwise
+ * related vehicles up/down or sideways inside identical roster cards.
+ */
+function normalizeAnglePortrait(src, outSize) {
+  const context = src.getContext('2d');
+  const pixels = context.getImageData(0, 0, src.width, src.height).data;
+  const bounds = measurePortraitCoreBounds(pixels, src.width, src.height);
+  if (!bounds) return src;
+  const { x: dx, y: dy, scale } = directPortraitPlacement(bounds, outSize, outSize);
+  const drawWidth = src.width * scale;
+  const drawHeight = src.height * scale;
+  const out = document.createElement('canvas');
+  out.width = outSize; out.height = outSize;
+  const oc = out.getContext('2d');
+  oc.imageSmoothingEnabled = true;
+  oc.imageSmoothingQuality = 'high';
+  // A faint alpha-derived grounding shadow preserves the transparent icon
+  // contract while separating dark running gear from the garage card. The
+  // final pass adds only restrained tonal clarity; it does not recolor the
+  // authored camouflage.
+  oc.save();
+  oc.globalAlpha = 0.28;
+  oc.filter = 'brightness(0) blur(10px)';
+  oc.drawImage(src, dx, dy + 7, drawWidth, drawHeight);
+  oc.restore();
+  oc.save();
+  oc.filter = 'brightness(1.06) contrast(1.07) saturate(1.03)';
+  oc.drawImage(src, dx, dy, drawWidth, drawHeight);
+  oc.restore();
+  return out;
+}
+
+function auditPortraitCanvas(canvas) {
+  const pixels = canvas.getContext('2d', { willReadFrequently: true })
+    .getImageData(0, 0, canvas.width, canvas.height).data;
+  return auditPortraitPixels(pixels, canvas.width, canvas.height);
+}
+
+function loadPortraitCanvas(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      canvas.getContext('2d').drawImage(image, 0, 0);
+      resolve(canvas);
+    };
+    image.onerror = () => reject(new Error(`portrait failed to load: ${url}`));
+    image.src = url;
+  });
+}
+
+async function auditSavedPortraits(ids, sources = {}) {
+  const result = {};
+  await Promise.all(ids.map(async (id) => {
+    try {
+      const file = tankAssetFile(id, 'angle');
+      const canvas = await loadPortraitCanvas(sources[id] || `/icons/thumbs/${file}`);
+      result[id] = auditPortraitCanvas(canvas);
+    } catch (error) {
+      result[id] = { error: String(error && error.stack || error), passes: false };
+    }
+  }));
+  return result;
+}
+
+/**
+ * Resolve the rendered body-mass center from a neutral top-down mask.
+ *
+ * A tank's rig origin, track-run midpoint and full bounding box are all useful
+ * engineering datums, but none of them certify the thing a player sees. This
+ * mask deliberately measures finished pixels. Rows narrower than 28% of the
+ * widest opaque row are rejected, which removes cannon tubes, antennas and
+ * tow cables without teaching the audit any vehicle-specific dimensions.
+ */
+function opaqueBodyCentroid(canvas) {
+  const pixels = canvas.getContext('2d', { willReadFrequently: true })
+    .getImageData(0, 0, canvas.width, canvas.height).data;
+  const rowWeights = new Float64Array(canvas.height);
+  let widestRow = 0;
+  for (let y = 0; y < canvas.height; y++) {
+    let weight = 0;
+    for (let x = 0; x < canvas.width; x++) {
+      const alpha = pixels[(y * canvas.width + x) * 4 + 3];
+      if (alpha > 8) weight += alpha / 255;
+    }
+    rowWeights[y] = weight;
+    widestRow = Math.max(widestRow, weight);
+  }
+
+  const minimumBodyRow = widestRow * 0.28;
+  let weightSum = 0;
+  let weightedX = 0;
+  let weightedY = 0;
+  let acceptedRows = 0;
+  for (let y = 0; y < canvas.height; y++) {
+    if (rowWeights[y] < minimumBodyRow) continue;
+    acceptedRows++;
+    for (let x = 0; x < canvas.width; x++) {
+      const alpha = pixels[(y * canvas.width + x) * 4 + 3];
+      if (alpha <= 8) continue;
+      const weight = alpha / 255;
+      weightSum += weight;
+      weightedX += (x + 0.5) * weight;
+      weightedY += (y + 0.5) * weight;
+    }
+  }
+  if (!(weightSum > 0) || !(acceptedRows > 0)) {
+    throw new Error('empty presentation mask');
+  }
+  return {
+    pixelX: weightedX / weightSum,
+    pixelY: weightedY / weightSum,
+    bodyPixels: Math.round(weightSum),
+    acceptedRows,
+    widestRowPx: Number(widestRow.toFixed(1)),
+  };
+}
+
+function renderedPresentationCenter(visual) {
+  const root = visual.root;
+  root.updateMatrixWorld(true);
+  // This is the exact fit box inspectOne uses for the shipped orthographic
+  // assets. Keep it before the centroid-only visibility exclusions below.
+  const iconBox = new THREE.Box3().setFromObject(root);
+  const hidden = [];
+  root.traverse((object) => {
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    const renderless = materials.length > 0 && materials.every((material) => material
+      && (material.colorWrite === false || material.visible === false || material.opacity <= 0));
+    if (!object.userData?.authoredShadowProxy && !renderless) return;
+    hidden.push([object, object.visible]);
+    object.visible = false;
+  });
+
+  let canvas;
+  let boundsCenter;
+  let half;
+  try {
+    root.updateMatrixWorld(true);
+    const box = new THREE.Box3().makeEmpty();
+    root.traverse((object) => {
+      if (!(object.isMesh || object.isInstancedMesh) || !object.geometry
+          || !visibleInTree(object, root)) return;
+      if (object.isInstancedMesh) {
+        object.computeBoundingBox();
+        if (object.boundingBox && !object.boundingBox.isEmpty()) {
+          box.union(object.boundingBox.clone().applyMatrix4(object.matrixWorld));
+        }
+        return;
+      }
+      if (!object.geometry.boundingBox) object.geometry.computeBoundingBox();
+      box.union(object.geometry.boundingBox.clone().applyMatrix4(object.matrixWorld));
+    });
+    if (box.isEmpty()) throw new Error(`${visual.specId}: empty visible presentation bounds`);
+    boundsCenter = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    half = Math.max(size.x, size.z) * 0.5 * 1.025;
+    const cam = orthoCam(boundsCenter, size, [0, 1, 0], [0, 0, 1], half, half);
+    // Measure the same authored materials and transparency that ship in the
+    // top asset. A flat override hid small asymmetric alpha differences on a
+    // handful of vehicles (notably Marder 1A3 and Chieftain 5), allowing the
+    // synthetic mask to pass while the real icon still looked off-center.
+    canvas = capture(cam, BASE, BASE);
+  } finally {
+    for (const [object, visible] of hidden) object.visible = visible;
+  }
+
+  let body;
+  try {
+    body = opaqueBodyCentroid(canvas);
+  } catch (error) {
+    throw new Error(`${visual.specId}: ${error.message}`);
+  }
+  const { pixelX, pixelY } = body;
+  // With a downward camera and +Z as screen-up, screen-right maps to world
+  // -X. Preserve that handedness when converting the measured pixel centroid
+  // back into the vehicle's local presentation coordinates.
+  const xM = Number((boundsCenter.x - (pixelX / canvas.width - 0.5) * half * 2).toFixed(4));
+  const zM = Number((boundsCenter.z + (0.5 - pixelY / canvas.height) * half * 2).toFixed(4));
+  // The update writes this newly measured anchor. Compute the paired fit from
+  // that same rounded value, not from the previous generated anchor imported
+  // when the page started, or the projection lags every anchor change by one
+  // generation and the public manifest cannot match runtime exactly.
+  const iconProjection = assetProjection(iconBox, { xM, zM });
+  const assetAnchor = visual.assetPresentationAnchor || visual.presentationAnchor;
+  // Existing images use this anchor, not the newly proposed pixel centroid.
+  // Keep that capture fit separate from the full-generation proposal below.
+  const capturedProjection = assetProjection(iconBox, assetAnchor);
+  const anchorPixelX = canvas.width * (0.5
+    - (assetAnchor.xM - boundsCenter.x) / (half * 2));
+  const anchorPixelY = canvas.height * (0.5
+    - (assetAnchor.zM - boundsCenter.z) / (half * 2));
+  return {
+    xM,
+    zM,
+    currentAnchor: {
+      xM: Number(assetAnchor.xM.toFixed(4)),
+      zM: Number(assetAnchor.zM.toFixed(4)),
+    },
+    capturedProjection: {
+      centerYM: Number(capturedProjection.center.y.toFixed(4)),
+      topHalfM: Number(capturedProjection.topHalf.toFixed(4)),
+      sideHalfM: Number(capturedProjection.sideHalf.toFixed(4)),
+    },
+    residualPx: Number(Math.hypot(pixelX - anchorPixelX, pixelY - anchorPixelY).toFixed(2)),
+    deltaM: Number(Math.hypot(
+      xM - assetAnchor.xM,
+      zM - assetAnchor.zM,
+    ).toFixed(4)),
+    bodyPixels: body.bodyPixels,
+    acceptedRows: body.acceptedRows,
+    widestRowPx: body.widestRowPx,
+    projection: {
+      centerYM: Number(iconProjection.center.y.toFixed(4)),
+      topHalfM: Number(iconProjection.topHalf.toFixed(4)),
+      sideHalfM: Number(iconProjection.sideHalf.toFixed(4)),
+    },
+  };
+}
+
+async function exportedTopPresentationCenter(id) {
+  const image = new Image();
+  image.decoding = 'async';
+  image.src = `/icons/${id}_top.webp?presentation-audit=${Date.now()}`;
+  await image.decode();
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  canvas.getContext('2d', { willReadFrequently: true }).drawImage(image, 0, 0);
+  const body = opaqueBodyCentroid(canvas);
+  const deltaX = body.pixelX - canvas.width * 0.5;
+  const deltaY = body.pixelY - canvas.height * 0.5;
+  return {
+    residualPx: Number(Math.hypot(deltaX, deltaY).toFixed(2)),
+    deltaXPx: Number(deltaX.toFixed(2)),
+    deltaYPx: Number(deltaY.toFixed(2)),
+    bodyPixels: body.bodyPixels,
+    acceptedRows: body.acceptedRows,
+    widestRowPx: body.widestRowPx,
+  };
+}
+
+function orthoCam(center, size, dir, up, halfW, halfH) {
+  const dist = Math.max(size.x, size.y, size.z) * 2 + 6;
+  const cam = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.1, dist * 3);
+  cam.up.set(up[0], up[1], up[2]);
+  cam.position.set(center.x + dir[0] * dist, center.y + dir[1] * dist, center.z + dir[2] * dist);
+  cam.lookAt(center);
+  cam.updateMatrixWorld();
+  return cam;
+}
+
+function assetProjection(box, anchor) {
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  center.x = anchor.xM;
+  center.z = anchor.zM;
+  const extentX = Math.max(center.x - box.min.x, box.max.x - center.x);
+  const extentZ = Math.max(center.z - box.min.z, box.max.z - center.z);
+  return {
+    center,
+    size,
+    extentX,
+    extentZ,
+    topHalf: Math.max(extentX, extentZ) * MARGIN,
+    sideHalf: Math.max(size.y / 2, extentZ / 2) * MARGIN,
+  };
+}
+
+const TECHNICAL_WIDTH = BASE;
+const TECHNICAL_HEIGHT = BASE / 2;
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function sideInspectionCamera(center, size, extentZ) {
+  const halfHeight = Math.max(size.y / 2, extentZ / 2) * MARGIN;
+  return orthoCam(center, size, [-1, 0, 0], [0, 1, 0], halfHeight * 2, halfHeight);
+}
+
+function technicalInspectionCamera(id, center, size, extentZ, box) {
+  const insetIds = [
+    'merkava3d_x', 'merkava4_x', 'leo2a7v_x', 'leo2a6m_x', 'leo2a4m_x',
+    'leo2a5_x', 'k2_x', 'kf51_x', 't14_x', 't90a_x', 't90a_vladimir_x',
+    't90m_x', 't90sm_x',
+    'm1a1_x', 'm1a1ha_x', 'm1a2_x', 'm1a2_tusk_x',
+    'm1a2_sepv2_x', 'm1a2_sepv3_x', 'ua_m1a1_x',
+  ];
+  if (!insetIds.includes(id)) {
+    return sideInspectionCamera(center, size, extentZ);
+  }
+  // These source X models' long guns enter the label rails in a full-canvas
+  // side camera; tall whips also meet the header or push bodies into the footer.
+  // Fit the complete vehicle to the actual 312×164 px content opening, not
+  // the outer 512×256 canvas. Only this technical camera moves: presentation
+  // anchors, metadata dimensions, ordinary views and comparison rigs remain
+  // unchanged. Include the real whip tips, gun and lowest shoes in the fit.
+  const halfHeight = Math.max(size.y * 128 / 164, size.z * 128 / 312);
+  const target = box.getCenter(new THREE.Vector3());
+  target.y += 5 * halfHeight / 128; // opening center is Y133, not canvas Y128
+  return orthoCam(target, size, [-1, 0, 0], [0, 1, 0], halfHeight * 2, halfHeight);
+}
+
+function visibleInspectionBounds(object, root) {
+  const box = new THREE.Box3().makeEmpty();
+  object.updateMatrixWorld(true);
+  object.traverse((child) => {
+    if (!(child.isMesh || child.isInstancedMesh) || !child.geometry
+        || !visibleInTree(child, root)) return;
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    const renderless = materials.length > 0 && materials.every((material) => material
+      && (material.colorWrite === false || material.visible === false || material.opacity <= 0));
+    if (renderless) return;
+    if (child.isInstancedMesh) {
+      child.computeBoundingBox();
+      if (child.boundingBox && !child.boundingBox.isEmpty()) {
+        box.union(child.boundingBox.clone().applyMatrix4(child.matrixWorld));
+      }
+      return;
+    }
+    if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
+    if (child.geometry.boundingBox) {
+      box.union(child.geometry.boundingBox.clone().applyMatrix4(child.matrixWorld));
+    }
+  });
+  return box;
+}
+
+function projectedInspectionBounds(box, camera) {
+  if (box.isEmpty()) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const x of [box.min.x, box.max.x]) {
+    for (const y of [box.min.y, box.max.y]) {
+      for (const z of [box.min.z, box.max.z]) {
+        const point = new THREE.Vector3(x, y, z).project(camera);
+        const px = (point.x + 1) * 0.5 * TECHNICAL_WIDTH;
+        const py = (1 - point.y) * 0.5 * TECHNICAL_HEIGHT;
+        minX = Math.min(minX, px);
+        minY = Math.min(minY, py);
+        maxX = Math.max(maxX, px);
+        maxY = Math.max(maxY, py);
+      }
+    }
+  }
+  return {
+    anchor: [(minX + maxX) * 0.5, (minY + maxY) * 0.5],
+    weight: Math.max(1, (maxX - minX) * (maxY - minY)),
+  };
+}
+
+function inspectionPickerColor(picker) {
+  let color = null;
+  const visual = picker.userData?.inspectionVisual || picker;
+  visual.traverse((object) => {
+    if (color || (!object.isMesh && !object.isLineSegments)) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    const material = materials.find((entry) => entry?.color
+      && (entry.userData?.galleryAnatomyLine || entry.userData?.galleryAnatomyFill
+        || entry.colorWrite !== false));
+    if (material) color = `#${material.color.getHexString()}`;
+  });
+  return color || '#9dafbd';
+}
+
+function compactInspectionTitle(title) {
+  return String(title || '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replaceAll('_', ' ')
+    .toUpperCase()
+    .slice(0, 13);
+}
+
+function inspectionCallout(picker, camera, root, kind) {
+  const inspection = picker.userData?.inspection || {};
+  const visual = picker.userData?.inspectionVisual || picker;
+  const projected = projectedInspectionBounds(visibleInspectionBounds(visual, root), camera);
+  if (!projected) return null;
+  const id = String(inspection.id || '');
+  const suffix = kind === 'armor'
+    ? `${Math.round(Number(inspection.keMm || 0))}MM`
+    : compactInspectionTitle(inspection.title);
+  return {
+    ...projected,
+    label: `${id} ${suffix}`.trim(),
+    color: inspectionPickerColor(picker),
+  };
+}
+
+function renderInspectionStage(spec, visual, camera, kind) {
+  const overlayMode = kind === 'modules' || kind === 'crew' ? kind : 'armor';
+  const overlays = [createInspectionOverlay(spec, visual, overlayMode)];
+  try {
+    visual.root.updateMatrixWorld(true);
+    camera.updateMatrixWorld(true);
+    const callouts = [];
+    for (const overlay of overlays) {
+      for (const picker of overlay.pickables) {
+        const callout = inspectionCallout(picker, camera, visual.root, kind);
+        if (callout) callouts.push(callout);
+      }
+    }
+    return {
+      canvas: capture(camera, TECHNICAL_WIDTH, TECHNICAL_HEIGHT),
+      callouts,
+    };
+  } finally {
+    for (let index = overlays.length - 1; index >= 0; index--) overlays[index].clear();
+  }
+}
+
+function drawTechnicalLegend(c, entries) {
+  const rows = entries.length > 6 ? 2 : 1;
+  const columns = Math.ceil(entries.length / rows);
+  const left = 12;
+  const width = 488;
+  const cellWidth = width / columns;
+  c.save();
+  c.font = '700 7px system-ui, sans-serif';
+  c.textAlign = 'left';
+  entries.forEach(([label, color], index) => {
+    const row = Math.floor(index / columns);
+    const column = index % columns;
+    const y = rows === 1 ? 244 : 232 + row * 13;
+    const labelWidth = c.measureText(label).width;
+    const contentWidth = 9 + 4 + labelWidth;
+    const x = left + column * cellWidth + Math.max(0, (cellWidth - contentWidth) / 2);
+    c.fillStyle = color;
+    c.fillRect(x, y - 5, 9, 5);
+    c.fillStyle = '#c8d2da';
+    c.fillText(label.toUpperCase(), x + 13, y);
+  });
+  c.restore();
+}
+
+function drawInspectionCallouts(c, callouts) {
+  const rails = [
+    { side: 'left', x: 5, textX: 9, edgeX: 87, elbowX: 90, align: 'left' },
+    { side: 'right', x: 425, textX: 503, edgeX: 425, elbowX: 422, align: 'right' },
+  ];
+  c.save();
+  c.font = '800 7px ui-monospace, monospace';
+  c.lineWidth = 0.8;
+  for (const rail of rails) {
+    const left = rail.side === 'left';
+    const candidates = callouts.filter((item) => (item.anchor[0] < 256) === left)
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, 6)
+      .sort((a, b) => a.anchor[1] - b.anchor[1]);
+    packCalloutYs(candidates, 56, 210, 14);
+    for (const item of candidates) {
+      c.strokeStyle = item.color;
+      c.beginPath();
+      c.moveTo(item.anchor[0], item.anchor[1]);
+      c.lineTo(rail.elbowX, item.labelY);
+      c.lineTo(rail.edgeX, item.labelY);
+      c.stroke();
+      c.beginPath();
+      c.arc(item.anchor[0], item.anchor[1], 1.5, 0, Math.PI * 2);
+      c.fillStyle = item.color;
+      c.fill();
+      c.fillStyle = 'rgba(5,11,15,.94)';
+      c.fillRect(rail.x, item.labelY - 6, 82, 11);
+      c.strokeStyle = 'rgba(182,203,217,.14)';
+      c.strokeRect(rail.x + 0.5, item.labelY - 5.5, 81, 10);
+      c.fillStyle = '#f6f8fa';
+      c.textAlign = rail.align;
+      c.fillText(item.label, rail.textX, item.labelY + 2.5);
+    }
+  }
+  c.restore();
+}
+
+function packCalloutYs(candidates, minY, maxY, gap) {
+  if (!candidates.length) return;
+  // Keep the original near-anchor leader-line composition.  Only displace a
+  // label when its text row would collide with a neighbour, sharing that
+  // displacement across the colliding group instead of cascading every later
+  // label down the rail.  This is minimum-displacement isotonic packing after
+  // subtracting the required row gap.
+  const desired = candidates.map((item, index) => (
+    clamp(item.anchor[1], minY, maxY) - index * gap
+  ));
+  const blocks = [];
+  desired.forEach((value, index) => {
+    blocks.push({ start: index, end: index, total: value, count: 1 });
+    while (blocks.length > 1) {
+      const right = blocks.at(-1);
+      const left = blocks.at(-2);
+      if (left.total / left.count <= right.total / right.count) break;
+      left.end = right.end;
+      left.total += right.total;
+      left.count += right.count;
+      blocks.pop();
+    }
+  });
+  const fitted = new Array(desired.length);
+  for (const block of blocks) {
+    const average = block.total / block.count;
+    for (let index = block.start; index <= block.end; index++) fitted[index] = average;
+  }
+  const packed = fitted.map((value, index) => value + index * gap);
+  const shift = packed[0] < minY
+    ? minY - packed[0]
+    : packed.at(-1) > maxY
+      ? maxY - packed.at(-1)
+      : 0;
+  candidates.forEach((item, index) => { item.labelY = packed[index] + shift; });
+}
+
+function technicalDiagram(stage, metadata, kind) {
+  const out = document.createElement('canvas');
+  out.width = TECHNICAL_WIDTH;
+  out.height = TECHNICAL_HEIGHT;
+  const c = out.getContext('2d');
+  const background = c.createLinearGradient(0, 0, 0, out.height);
+  background.addColorStop(0, '#0c171f');
+  background.addColorStop(0.56, '#071118');
+  background.addColorStop(1, '#050a0e');
+  c.fillStyle = background;
+  c.fillRect(0, 0, out.width, out.height);
+  c.drawImage(stage.canvas, 0, 0);
+
+  c.fillStyle = 'rgba(3,8,11,.78)';
+  c.fillRect(0, 0, out.width, 43);
+  c.fillStyle = 'rgba(3,8,11,.7)';
+  c.fillRect(0, 43, 92, 181);
+  c.fillRect(420, 43, 92, 181);
+  c.fillStyle = 'rgba(3,8,11,.86)';
+  c.fillRect(0, 224, out.width, 32);
+  c.strokeStyle = 'rgba(155,180,196,.18)';
+  c.lineWidth = 1;
+  c.beginPath();
+  c.moveTo(0, 42.5);
+  c.lineTo(out.width, 42.5);
+  c.moveTo(0, 223.5);
+  c.lineTo(out.width, 223.5);
+  c.stroke();
+  c.strokeStyle = 'rgba(155,180,196,.13)';
+  c.strokeRect(92.5, 43.5, 327, 180);
+
+  const records = {
+    armor: {
+      title: 'Armor / penetration reference',
+      note: 'LIVE EFFECTIVE THICKNESS',
+      legend: inspectionLegend('armor'),
+    },
+    modules: {
+      title: 'Internal module layout',
+      note: 'LIVE DAMAGE MODULES',
+      legend: inspectionLegend('modules'),
+    },
+    crew: {
+      title: 'Crew station layout',
+      note: 'LIVE CREW ANATOMY',
+      legend: inspectionLegend('crew'),
+    },
+  };
+  const record = records[kind];
+
+  drawNationalInsignia(c, metadata.markings.insignia, 19, 20, 18);
+  c.fillStyle = '#f4f7f9';
+  c.font = '750 12px system-ui, sans-serif';
+  c.fillText(metadata.label?.shortName || metadata.name, 34, 17);
+  c.fillStyle = '#dca652';
+  c.font = '800 7.5px system-ui, sans-serif';
+  c.fillText(`TIER ${metadata.tierNumeral} · ${record.title}`.toUpperCase(), 34, 32);
+
+  c.textAlign = 'right';
+  c.fillStyle = '#9dafbd';
+  c.font = '800 7.5px system-ui, sans-serif';
+  c.fillText(metadata.markings.designation.toUpperCase(), out.width - 13, 17);
+  c.fillStyle = '#6fd6c5';
+  c.font = '750 7px system-ui, sans-serif';
+  c.fillText(record.note, out.width - 13, 32);
+  c.textAlign = 'left';
+
+  drawInspectionCallouts(c, stage.callouts);
+  drawTechnicalLegend(c, record.legend);
+  return out;
+}
+function drawMarkingsDiagram(metadata) {
+  const out = document.createElement('canvas');
+  out.width = 256; out.height = 128;
+  const c = out.getContext('2d');
+  const g = c.createLinearGradient(0, 0, 256, 128);
+  g.addColorStop(0, '#111b23'); g.addColorStop(1, '#070c11');
+  c.fillStyle = g; c.fillRect(0, 0, 256, 128);
+  c.strokeStyle = 'rgba(182,198,210,.28)'; c.strokeRect(0.5, 0.5, 255, 127);
+  drawVehicleDesignation(c, metadata.markings, { x: 8, y: 24, width: 240, height: 88 });
+  c.fillStyle = '#dca652'; c.font = '800 9px system-ui, sans-serif';
+  c.fillText(metadata.markings.countryLabel.toUpperCase(), 12, 16);
+  c.textAlign = 'right'; c.fillStyle = '#9dafbd';
+  c.fillText(metadata.markings.designation, 244, 16);
+  c.textAlign = 'left';
+  return out;
+}
+
+function muzzleBoreCensus(root) {
+  const result = { tagged: 0, rims: 0, discs: 0, authored: 0, fallback: 0 };
+  root.traverse((object) => {
+    for (let current = object; current; current = current.parent) {
+      if (!current.visible) return;
+      if (current === root) break;
+    }
+    if (object.userData && object.userData.cannonBore) result.tagged++;
+    if (/muzzleBoreShadow(?:Fallback)?Rim/i.test(object.name || '')) result.rims++;
+    if (/muzzleBoreShadow(?:Fallback)?Disc/i.test(object.name || '')) result.discs++;
+    if (object.name === 'muzzleBoreShadowDisc') result.authored++;
+    if (object.name === 'muzzleBoreShadowFallback') result.fallback++;
+  });
+  return result;
+}
+
+function visibleInTree(object, root) {
+  if (!object) return false;
+  for (let current = object; current; current = current.parent) {
+    if (!current.visible) return false;
+    if (current === root) return true;
+  }
+  return false;
+}
+
+function visibleBorePart(root, pattern) {
+  let found = null;
+  root.traverse((object) => {
+    if (!found && pattern.test(object.name || '') && visibleInTree(object, root)) found = object;
+  });
+  return found;
+}
+
+function vehicleMarkingCensus(root) {
+  const result = {
+    total: 0,
+    insignia: 0,
+    designation: 0,
+    verifiedInsignia: 0,
+    verifiedDesignation: 0,
+    minimumVisibilityRatio: 1,
+    codes: [],
+  };
+  const codes = new Set();
+  root.traverse((object) => {
+    if (!object.userData?.vehicleMarking || !visibleInTree(object, root)) return;
+    result.total++;
+    const kind = object.userData.markingKind;
+    if (kind === 'insignia') result.insignia++;
+    if (kind === 'designation') result.designation++;
+    if (kind === 'insignia' && object.userData.visibilityVerified) result.verifiedInsignia++;
+    if (kind === 'designation' && object.userData.visibilityVerified) result.verifiedDesignation++;
+    if (Number.isFinite(object.userData.visibilityRatio)) {
+      result.minimumVisibilityRatio = Math.min(
+        result.minimumVisibilityRatio, object.userData.visibilityRatio);
+    }
+    if (object.userData.markingCode) codes.add(object.userData.markingCode);
+  });
+  result.codes = [...codes].sort();
+  return result;
+}
+
+function inspectOne(id, renderFiles, requestedViews = null) {
+  const visual = createTank(id, null, { camoSeed: 4100, quality: 'high' });
+  const root = visual.root;
+  scene.add(root);
+  try {
+    root.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(root);
+    // The full box is a fit envelope, not a body center. Long cannons and
+    // antennae influence zoom without dragging the hull away from the shared
+    // garage/gallery presentation anchor. The returned half-extents are also
+    // the ballistic-card projection receipt.
+    const assetAnchor = visual.assetPresentationAnchor || visual.presentationAnchor;
+    const projection = assetProjection(box, assetAnchor);
+    const { center, size, extentX, extentZ } = projection;
+    const spec = getSpec(id);
+    const metadata = tankAssetMetadata(spec);
+    const geometryHash = geometryFingerprint(root);
+    const presentationAnchor = {
+      xM: Number(assetAnchor.xM.toFixed(4)),
+      zM: Number(assetAnchor.zM.toFixed(4)),
+    };
+    const meta = {
+      ...metadata,
+      geometryHash,
+      metadataHash: metadataFingerprint(metadata),
+      presentationAnchor,
+      presentationHash: metadataFingerprint(presentationAnchor),
+      presentationProjection: {
+        centerYM: Number(projection.center.y.toFixed(4)),
+        topHalfM: Number(projection.topHalf.toFixed(4)),
+        sideHalfM: Number(projection.sideHalf.toFixed(4)),
+      },
+      appearance: auditTankAppearance(root),
+      muzzleBore: muzzleBoreCensus(root),
+      vehicleMarkings: vehicleMarkingCensus(root),
+      requiredFiles: requiredTankAssetFiles(id),
+    };
+    if (!renderFiles) return { files: {}, meta };
+
+    const files = {};
+    const wants = (view) => !requestedViews || requestedViews.includes(view);
+    if (wants('top') || wants('topSilhouette')) {
+      const topCam = orthoCam(center, size, [0, 1, 0], [0, 0, 1],
+        projection.topHalf, projection.topHalf);
+      const topCanvas = capture(topCam, BASE, BASE);
+      if (wants('top')) files[tankAssetFile(id, 'top')] = topCanvas.toDataURL('image/webp', 0.9);
+      if (wants('topSilhouette')) files[tankAssetFile(id, 'topSilhouette')] = silhouette(topCanvas, 128, 128).toDataURL('image/png');
+    }
+
+    if (wants('side') || wants('sideSilhouette')) {
+      const sideCam = sideInspectionCamera(center, size, extentZ);
+      const sideCanvas = capture(sideCam, BASE, BASE / 2);
+      if (wants('side')) files[tankAssetFile(id, 'side')] = sideCanvas.toDataURL('image/webp', 0.9);
+      if (wants('sideSilhouette')) files[tankAssetFile(id, 'sideSilhouette')] = silhouette(sideCanvas, 256, 128).toDataURL('image/png');
+    }
+    // Optional authoring-only orthographic front view. It is deliberately not
+    // part of the shipped tank-asset contract; geometry comparison tools can
+    // request it without expanding every vehicle's required public assets.
+    if (wants('front')) {
+      const frontHalf = Math.max(size.x, size.y) * 0.5 * MARGIN;
+      const frontCam = orthoCam(center, size, [0, 0, 1], [0, 1, 0], frontHalf, frontHalf);
+      files[`${id}_front.webp`] = capture(frontCam, BASE, BASE).toDataURL('image/webp', 0.9);
+    }
+    if (wants('armorSide') || wants('modulesSide') || wants('crewSide')) {
+      const sideCam = technicalInspectionCamera(id, center, size, extentZ, box);
+      if (wants('armorSide')) {
+        const stage = renderInspectionStage(spec, visual, sideCam, 'armor');
+        files[tankAssetFile(id, 'armorSide')] = technicalDiagram(stage, metadata, 'armor')
+          .toDataURL('image/png');
+      }
+      if (wants('modulesSide')) {
+        const stage = renderInspectionStage(spec, visual, sideCam, 'modules');
+        files[tankAssetFile(id, 'modulesSide')] = technicalDiagram(stage, metadata, 'modules')
+          .toDataURL('image/png');
+      }
+      if (wants('crewSide')) {
+        const stage = renderInspectionStage(spec, visual, sideCam, 'crew');
+        files[tankAssetFile(id, 'crewSide')] = technicalDiagram(stage, metadata, 'crew')
+          .toDataURL('image/png');
+      }
+    }
+    if (wants('markings')) files[tankAssetFile(id, 'markings')] = drawMarkingsDiagram(metadata).toDataURL('image/png');
+
+    if (wants('angle')) {
+      const fov = 28;
+      const radius = Math.hypot(extentX,
+        Math.max(center.y - box.min.y, box.max.y - center.y), extentZ);
+      // Challenger 3 combines the fleet's long L55-class gun with a dense
+      // bustle/sensor silhouette. Its centered aft field load leaves only a
+      // fraction of a card pixel at the standard margin, so give this one
+      // portrait a 3% camera cushion instead of weakening the fleet audit.
+      const portraitMargin = id === 'challenger_3' ? MARGIN * 1.03 : MARGIN;
+      const dist = (radius * portraitMargin) / Math.sin((fov / 2) * Math.PI / 180);
+      // Tall source fittings remain intact; only their portrait azimuth changes.
+      // Comparison/technical cameras, dense-core scale and pixel gates do not.
+      const dir = new THREE.Vector3(portraitSideRatio(id), 0.34, 1.0).normalize();
+      const angleCam = new THREE.PerspectiveCamera(fov, 1, 0.1, dist * 4);
+      angleCam.position.copy(center).addScaledVector(dir, dist);
+      angleCam.lookAt(center);
+      angleCam.updateMatrixWorld();
+      const angleSource = capture(angleCam, BASE * 2, BASE * 2);
+      const angleFile = tankAssetFile(id, 'angle');
+      const angleCanvas = normalizeAnglePortrait(angleSource, BASE);
+      const thumbCanvas = normalizeAnglePortrait(angleSource, BASE / 2);
+      const portraitAudit = auditPortraitCanvas(thumbCanvas);
+      if (!portraitAudit.passes) {
+        throw new Error(
+          `${id}: portrait framing outside fleet envelope `
+          + `(${portraitAudit.displayedFullWidth.toFixed(1)}x`
+          + `${portraitAudit.displayedFullHeight.toFixed(1)} card px)`,
+        );
+      }
+      // Full dossier art and the Garage thumbnail are one atomic output. New
+      // vehicle captures can no longer update one size while leaving the
+      // other stale or hand-resized.
+      files[angleFile] = angleCanvas.toDataURL('image/webp', 0.9);
+      files[`thumbs/${angleFile}`] = thumbCanvas.toDataURL('image/webp', 0.9);
+    }
+    return { files, meta };
+  } finally {
+    scene.remove(root);
+    visual.dispose();
+  }
+}
+
+function boreShotOne(id) {
+  const visual = createTank(id, null, { camoSeed: 4100, quality: 'high' });
+  const root = visual.root;
+  scene.add(root);
+  try {
+    root.updateMatrixWorld(true);
+    const muzzle = root.getObjectByName('rig_muzzle');
+    if (!muzzle) throw new Error('rig_muzzle missing');
+    const spec = getSpec(id);
+    const fallbackMouths = [];
+    root.traverse((object) => {
+      if (/^muzzleBoreShadowFallback(?:_\d+)?$/.test(object.name || '')
+          && visibleInTree(object, root)) fallbackMouths.push(object);
+    });
+    const fallback = fallbackMouths[0] || null;
+    const primaryRim = visibleBorePart(root, /muzzleBoreShadow(?:Fallback)?Rim$/i);
+    const primaryDisc = visibleBorePart(root, /muzzleBoreShadow(?:Fallback)?Disc$/i);
+    const facePart = primaryRim || primaryDisc || (visibleInTree(fallback, root) ? fallback : muzzle);
+    const face = facePart.getWorldPosition(new THREE.Vector3());
+    const direction = muzzle.getWorldDirection(new THREE.Vector3()).normalize();
+    let radius = Math.max(0.014, (spec.armor.gunBarrel.radiusM || 0.04) * 0.92);
+    if (primaryRim?.geometry) {
+      primaryRim.geometry.computeBoundingSphere();
+      const scale = primaryRim.getWorldScale(new THREE.Vector3());
+      const measured = primaryRim.geometry.boundingSphere?.radius
+        // The mouth lives in the local XY plane. Several family builders
+        // stretch only the cannon's longitudinal Z axis; folding that into
+        // the radial scale overestimates the aperture and samples empty air.
+        * Math.max(Math.abs(scale.x), Math.abs(scale.y));
+      if (Number.isFinite(measured) && measured > 0.004) radius = measured;
+    }
+    const distance = Math.max(0.18, radius * 8);
+    const fov = 22;
+    const cam = new THREE.PerspectiveCamera(fov, 1, 0.002, distance * 8);
+    cam.position.copy(face).addScaledVector(direction, distance);
+    cam.up.set(0, 1, 0);
+    cam.lookAt(face);
+    cam.updateMatrixWorld(true);
+    const ray = new THREE.Raycaster(cam.position, direction.clone().negate(), 0, distance * 4);
+    const centerHits = ray.intersectObject(root, true).filter((hit) => {
+      for (let node = hit.object; node; node = node.parent) {
+        if (!node.visible) return false;
+        if (node === root) break;
+      }
+      const materials = Array.isArray(hit.object.material) ? hit.object.material : [hit.object.material];
+      return !materials.length || materials.some((material) => !material || material.colorWrite !== false);
+    }).slice(0, 6).map((hit) => {
+      let bore = /muzzleBoreShadow/i.test(hit.object.name || '');
+      for (let node = hit.object; node && !bore; node = node.parent) {
+        bore = !!(node.userData && node.userData.cannonBore);
+      }
+      return {
+        distance: Number(hit.distance.toFixed(4)),
+        name: hit.object.name || hit.object.type,
+        path: (() => {
+          const names = [];
+          for (let node = hit.object; node; node = node.parent) {
+            names.push(node.name || node.type);
+            if (node === root) break;
+          }
+          return names.reverse();
+        })(),
+        fallback: !!(hit.object.userData && hit.object.userData.cannonBoreFallbackPart),
+        bore,
+      };
+    });
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0).normalize();
+    const up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1).normalize();
+    const sampleBoreRing = (normalizedRadius, count, pattern) => {
+      const samples = [];
+      for (let i = 0; i < count; i++) {
+        const angle = i * Math.PI * 2 / count;
+        const origin = cam.position.clone()
+          .addScaledVector(right, Math.cos(angle) * radius * normalizedRadius)
+          .addScaledVector(up, Math.sin(angle) * radius * normalizedRadius);
+        const sampleRay = new THREE.Raycaster(origin, direction.clone().negate(), 0, distance * 4);
+        const hit = sampleRay.intersectObject(root, true).find((candidate) => {
+          if (!visibleInTree(candidate.object, root)) return false;
+          const materials = Array.isArray(candidate.object.material)
+            ? candidate.object.material : [candidate.object.material];
+          return !materials.length || materials.some((material) => !material || material.colorWrite !== false);
+        });
+        samples.push({
+          pass: !!hit && pattern.test(hit.object.name || ''),
+          name: hit?.object.name || null,
+          distance: hit ? Number(hit.distance.toFixed(4)) : null,
+        });
+      }
+      return samples;
+    };
+    const innerSamples = sampleBoreRing(0.30, 8, /muzzleBoreShadow(?:Fallback)?Disc$/i);
+    const rimSamples = sampleBoreRing(0.83, 16,
+      /muzzleBoreShadow(?:Fallback)?(?:Rim|Annulus)$/i);
+    const rimWorld = primaryRim?.getWorldPosition(new THREE.Vector3()) || null;
+    const discWorld = primaryDisc?.getWorldPosition(new THREE.Vector3()) || null;
+    let concentricOffsetM = null;
+    if (rimWorld && discWorld) {
+      const delta = discWorld.clone().sub(rimWorld);
+      delta.addScaledVector(direction, -delta.dot(direction));
+      concentricOffsetM = delta.length();
+    }
+    const oldColor = renderer.getClearColor(new THREE.Color()).clone();
+    const oldAlpha = renderer.getClearAlpha();
+    renderer.setClearColor(0xaebac2, 1);
+    const canvas = capture(cam, 256, 256);
+    renderer.setClearColor(oldColor, oldAlpha);
+
+    const pixelsPerM = 256 / (2 * distance * Math.tan((fov / 2) * Math.PI / 180));
+    const radiusPx = Math.max(4, radius * pixelsPerM);
+    const data = canvas.getContext('2d').getImageData(0, 0, 256, 256).data;
+    let inner = 0, innerN = 0, surround = 0, surroundN = 0;
+    for (let y = 0; y < 256; y++) {
+      for (let x = 0; x < 256; x++) {
+        const d = Math.hypot(x - 127.5, y - 127.5) / radiusPx;
+        if (d > 1.65) continue;
+        const i = (y * 256 + x) * 4;
+        const luma = data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
+        if (d <= 0.38) { inner += luma; innerN++; }
+        else if (d >= 1.15) { surround += luma; surroundN++; }
+      }
+    }
+    return {
+      image: canvas.toDataURL('image/png'),
+      innerLuma: innerN ? inner / innerN : 255,
+      surroundLuma: surroundN ? surround / surroundN : 0,
+      radiusPx,
+      muzzleBore: muzzleBoreCensus(root),
+      boreDebug: {
+        fallbackZ: fallback?.position.z ?? null,
+        fallbackPosition: fallback?.position.toArray() ?? null,
+        fallbackWorld: fallback?.getWorldPosition(new THREE.Vector3()).toArray() ?? null,
+        authoredWorld: root.getObjectByName('muzzleBoreShadowDisc')?.getWorldPosition(new THREE.Vector3()).toArray() ?? null,
+        capOffsetM: fallback?.userData.capOffsetM ?? null,
+        muzzleSeatReceipts: fallbackMouths.map((mouth) => ({
+          name: mouth.name,
+          ...(mouth.userData.muzzleSeatReceipt || {}),
+        })),
+        primaryRimWorld: rimWorld?.toArray() ?? null,
+        primaryDiscWorld: discWorld?.toArray() ?? null,
+        concentricOffsetM,
+        innerSamples,
+        rimSamples,
+        centerHits,
+      },
+    };
+  } finally {
+    scene.remove(root);
+    visual.dispose();
+  }
+}
+
+function idsOrFleet(ids) {
+  return ids && ids.length ? ids : DEVELOPMENT_TANK_IDS;
+}
+
+window.__WARM = (ids) => {
+  for (const id of idsOrFleet(ids)) {
+    const visual = createTank(id, null, {
+      camoSeed: 4100, quality: 'high', staticPreview: true,
+    });
+    visual.dispose();
+  }
+  return true;
+};
+
+window.__GEN = (ids, views) => {
+  const result = { schemaVersion: TANK_ASSET_SCHEMA_VERSION, files: {}, tanks: {} };
+  for (const id of idsOrFleet(ids)) {
+    try {
+      const one = inspectOne(id, true, views && views.length ? views : null);
+      Object.assign(result.files, one.files);
+      result.tanks[id] = one.meta;
+    } catch (error) {
+      result.files[`${id}.error`] = String(error && error.stack || error);
+    }
+  }
+  return result;
+};
+
+window.__AUDIT = (ids) => {
+  const auditIds = ids && ids.length ? ids : ALL_TANK_IDS;
+  const result = { schemaVersion: TANK_ASSET_SCHEMA_VERSION, requiredViews: Object.keys(TANK_ASSET_VIEWS), ids: [...ALL_TANK_IDS], tanks: {} };
+  for (const id of auditIds) {
+    try { result.tanks[id] = inspectOne(id, false).meta; }
+    catch (error) { result.tanks[id] = { error: String(error && error.stack || error) }; }
+  }
+  return result;
+};
+
+window.__AUDIT_PORTRAITS = (ids, sources) => auditSavedPortraits(idsOrFleet(ids), sources);
+
+window.__CENTER_AUDIT = (ids) => {
+  const result = {};
+  for (const id of idsOrFleet(ids)) {
+    const visual = createTank(id, null, { camoSeed: 4100, quality: 'high' });
+    scene.add(visual.root);
+    try { result[id] = renderedPresentationCenter(visual); }
+    catch (error) { result[id] = { error: String(error && error.stack || error) }; }
+    finally {
+      scene.remove(visual.root);
+      visual.dispose();
+    }
+  }
+  return result;
+};
+
+window.__TOP_ASSET_CENTER_AUDIT = async (ids) => {
+  const result = {};
+  await Promise.all(idsOrFleet(ids).map(async (id) => {
+    try { result[id] = await exportedTopPresentationCenter(id); }
+    catch (error) { result[id] = { error: String(error && error.stack || error) }; }
+  }));
+  return result;
+};
+
+window.__FLEET_IDS = [...DEVELOPMENT_TANK_IDS];
+window.__BORE_SHOTS = (ids) => {
+  const result = {};
+  for (const id of idsOrFleet(ids)) {
+    try { result[id] = boreShotOne(id); }
+    catch (error) { result[id] = { error: String(error && error.stack || error) }; }
+  }
+  return result;
+};
+
+window.__ICONS_READY = true;
+</script>
+</body>
+</html>

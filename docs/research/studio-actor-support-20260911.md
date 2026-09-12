@@ -1,0 +1,49 @@
+# Studio actor support, 2026-09-11
+
+Storyboard tracks now retain authored horizontal motion while the ordinary
+movement support solver controls chassis height and attitude. Replay starts
+from canonical state, preserves explicitly staged hydraulic pitch, and steps
+support on the global 60 Hz timeline. Display refreshes do not restart settling.
+
+Focused tests use the actual movement solver on flat/sloped surfaces and
+compare uniform/cue-subdivided cadence, backward replay and hydraulic staging.
+Typecheck and public build pass. Native `studio-native-support-r3` passes the
+15-second duel, all four rails, FX controls, JSON round-trip, video recording
+(339084-byte VP9), and Garage return. Earlier r2 playback timeout is retained
+as a failed run; its unchanged five-second gate passes on r3.
+
+Ground diagnostic `studio-ground-contact-r4/report.json` measures actual
+rendered wheel/track vertices against analytic terrain and raycasts selected
+lower pad points against rendered terrain triangles. Minimum analytic pad gaps
+span -13.667 to +17 mm. Rounded transform hashes repeat after backward seeking;
+this is not a deformed-buffer identity certificate. Selected lower pad points
+span about -200 to +184 mm against rendered terrain, reflecting terrain mesh
+sampling and curved end stock. This does not qualify an entire loaded run or
+resolve every terrain/model discrepancy. The old half-metre hover estimate
+from an offset shadow alone is unsupported. These diagnostic images retain
+Studio authoring guides and are not marketing outputs.
+
+Independent review found the canonical reset and explicit hydraulic fix sound;
+no new support-code blocker was identified. Full combined launch testing and
+performance ceilings remain separate requirements.
+
+## Encoder startup correction
+
+The promo capture exposed a cold-encoder deadlock: after one dirty opening frame, paused Studio rendering stopped while playback waited for captured bytes. The live tick now keeps submitting the held zero-time composition until the first nonempty chunk. It preserves the10second timeout and routes a later requestFrame failure through the same owning-session cleanup as initial startup failures.
+
+The actual recording and tick test covers a recorder that needs five frames, cancellation, timeout, later priming failure, stale events and retry. Latest typecheck and public build pass. Native promo UI r3 records Studio successfully and completes Garage/battle/Gallery/Docs capture at `.qa-dev/launch/promo-current/ui-r3`; optional local-preview analytics failures remain separately recorded. The HUD capture does not establish a target kill.
+
+## Recorder time after stalled frames
+
+The20-scene native run exposed a15.838s file for the15s scene12 timeline.
+The interactive delta cap discarded elapsed time while MediaRecorder kept
+wall-clock timestamps. During recording only, timeline advancement now catches
+up to the elapsed recording instant, excluding the measured encoder lead-in
+and bounded at the storyboard end. Existing ordered effects and60Hz actor
+support steps are retained. Normal interactive playback remains unchanged.
+
+Actual-method recording/access tests pass, including800ms encoder startup,
+slow frames, endpoint clamping, cancellation and retry. Independent source
+review passes. Native scene12 rerun passes the original duration gate in
+`.qa-dev/launch/studio-wall-clock-native-r1.log`. The full20-scene rerun remains
+separate. Correct duration cannot recover frames lost to a browser stall.

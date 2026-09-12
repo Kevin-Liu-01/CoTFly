@@ -1,0 +1,527 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Track system audit</title>
+<style>
+  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #10151a; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #audit-label {
+    position: fixed; left: 20px; top: 18px; padding: 8px 11px;
+    color: #e9eef2; background: rgba(10, 14, 18, .78); border: 1px solid #6f7d86;
+    font: 600 13px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: .04em; white-space: pre; pointer-events: none;
+  }
+</style>
+<script type="module">
+import * as THREE from '/node_modules/three/build/three.module.js';
+import { createTank } from '/src/vehicles/tankFactory.ts';
+
+const params = new URLSearchParams(location.search);
+const id = params.get('id');
+const roundMode = params.get('round') === '1';
+const roundView = params.get('view') === 'right' ? 'right' : 'left';
+const round = (value) => Number(value.toFixed(5));
+const triangleCount = (geometry) => geometry?.index
+  ? geometry.index.count / 3
+  : (geometry?.getAttribute('position')?.count || 0) / 3;
+
+async function stageRoundSurface(tank) {
+  const radiusM = 18;
+  const roundHeight = (_x, z) => {
+    const clampedZ = THREE.MathUtils.clamp(z, -radiusM + 0.001, radiusM - 0.001);
+    return Math.sqrt(radiusM * radiusM - clampedZ * clampedZ) - radiusM;
+  };
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x172027);
+  scene.fog = new THREE.Fog(0x172027, 15, 28);
+  scene.add(tank.root);
+
+  const groundGeometry = new THREE.PlaneGeometry(12, 12, 48, 72);
+  groundGeometry.rotateX(-Math.PI / 2);
+  const groundPositions = groundGeometry.getAttribute('position');
+  for (let index = 0; index < groundPositions.count; index++) {
+    groundPositions.setY(index, roundHeight(
+      groundPositions.getX(index), groundPositions.getZ(index)) - 0.018);
+  }
+  groundPositions.needsUpdate = true;
+  groundGeometry.computeVertexNormals();
+  const ground = new THREE.Mesh(groundGeometry, new THREE.MeshStandardMaterial({
+    color: 0x59635d, roughness: 0.96, metalness: 0.02,
+  }));
+  ground.receiveShadow = true;
+  scene.add(ground);
+  const courseLines = new THREE.Mesh(groundGeometry.clone(), new THREE.MeshBasicMaterial({
+    color: 0x92a49a, wireframe: true, transparent: true, opacity: 0.16,
+  }));
+  courseLines.position.y = 0.004;
+  scene.add(courseLines);
+
+  scene.add(new THREE.HemisphereLight(0xdce8ee, 0x1e2522, 2.1));
+  const key = new THREE.DirectionalLight(0xfff3dc, 3.0);
+  key.position.set(roundView === 'left' ? 6 : -6, 9, 5);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.camera.left = key.shadow.camera.bottom = -6;
+  key.shadow.camera.right = key.shadow.camera.top = 6;
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(0xc6ddff, 2.2);
+  fill.position.set(roundView === 'left' ? 10 : -10, 4, -4);
+  scene.add(fill);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+
+  const contactLift = -(tank.contactGeom?.bottomYM || 0);
+  const state = {
+    pos: new THREE.Vector3(0, contactLift, 0), yaw: 0,
+    turretYaw: 0, gunPitch: 0, speed: 0, yawRate: 0,
+    visualPitch: 0, visualRoll: 0, trackScroll: { l: 0, r: 0 },
+  };
+  tank.setGroundSampler(roundHeight);
+  for (let frame = 0; frame < 48; frame++) tank.syncFromState(state, 1 / 30);
+  tank.root.updateMatrixWorld(true);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(innerWidth, innerHeight, false);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.08;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  document.body.append(renderer.domElement);
+
+  const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 60);
+  const side = roundView === 'left' ? 1 : -1;
+  camera.position.set(side * 10.8, 2.35, 0.15);
+  camera.lookAt(0, 1.25, 0.15);
+  renderer.render(scene, camera);
+
+  const label = document.createElement('div');
+  label.id = 'audit-label';
+  label.textContent = `${id.toUpperCase()}  •  ROUND COURSE  •  ${roundView.toUpperCase()}\n`
+    + `cylindrical radius ${radiusM.toFixed(1)} m  •  48 settled frames`;
+  document.body.append(label);
+  await new Promise((resolve) => requestAnimationFrame(() => {
+    renderer.render(scene, camera);
+    resolve();
+  }));
+  window.__TRACK_ROUND_AUDIT = {
+    id, view: roundView, radiusM, settledFrames: 48,
+    surfaceDropAt3M: round(roundHeight(0, 3)),
+  };
+  window.__TRACK_ROUND_READY = true;
+}
+
+function matrixPose(mesh, index) {
+  const matrix = new THREE.Matrix4();
+  const position = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  mesh.getMatrixAt(index, matrix);
+  matrix.decompose(position, quaternion, scale);
+  return { position, quaternion, scale };
+}
+
+function intersectionsAtZ(points, z) {
+  const ys = [];
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i], b = points[(i + 1) % points.length];
+    if ((a[0] - z) * (b[0] - z) > 0) continue;
+    const dz = b[0] - a[0];
+    const y = Math.abs(dz) < 1e-7
+      ? Math.min(a[1], b[1])
+      : a[1] + (b[1] - a[1]) * ((z - a[0]) / dz);
+    if (Number.isFinite(y) && !ys.some((value) => Math.abs(value - y) < 1e-5)) ys.push(y);
+  }
+  return ys.sort((a, b) => a - b);
+}
+
+function courseStation(points, point) {
+  let bestDistanceSq = Infinity;
+  let bestStation = 0;
+  let cursor = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i], b = points[(i + 1) % points.length];
+    const dz = b[0] - a[0], dy = b[1] - a[1];
+    const lengthSq = dz * dz + dy * dy;
+    const length = Math.sqrt(lengthSq) || 1e-6;
+    const t = lengthSq > 1e-12
+      ? Math.max(0, Math.min(1, ((point.z - a[0]) * dz + (point.y - a[1]) * dy) / lengthSq))
+      : 0;
+    const pz = a[0] + dz * t, py = a[1] + dy * t;
+    const distanceSq = (point.z - pz) ** 2 + (point.y - py) ** 2;
+    if (distanceSq < bestDistanceSq) {
+      bestDistanceSq = distanceSq;
+      bestStation = cursor + length * t;
+    }
+    cursor += length;
+  }
+  return bestStation;
+}
+
+function inspectUnit(unitId, receipt, objects) {
+  const failures = [];
+  const bands = objects.filter((object) => object.userData.runningGearUnitId === unitId
+    && /^gearTrackBand[LR]$/.test(object.name));
+  const pads = objects.filter((object) => object.userData.runningGearUnitId === unitId
+    && object.name === 'gearTrackPads');
+  const simplifiedPads = objects.filter((object) => object.userData.runningGearUnitId === unitId
+    && object.name === 'gearTrackPadsSimplified');
+  const tires = objects.filter((object) => object.userData.runningGearUnitId === unitId
+    && object.name === 'gearRoadWheelTires');
+  const suspensionLinks = objects.filter((object) => object.userData.runningGearUnitId === unitId
+    && object.name === 'gearSuspensionLinks');
+  const suspensionJoints = objects.filter((object) => object.userData.runningGearUnitId === unitId
+    && object.name === 'gearSuspensionJointBosses');
+  const wheelLayers = tires.length ? tires : objects.filter((object) =>
+    object.userData.runningGearUnitId === unitId && object.name === 'gearRoadWheelDiscs');
+  const drives = objects.filter((object) => object.userData.runningGearUnitId === unitId
+    && object.name === 'gearEndWheelHardware'
+    && object.userData.runningGearEndKind === 'sprocket');
+
+  if (bands.length !== 2) failures.push(`expected 2 belts, got ${bands.length}`);
+  if (pads.length !== 1) failures.push(`expected 1 integrated shoe layer, got ${pads.length}`);
+  if (simplifiedPads.length !== 1) {
+    failures.push(`expected 1 distance shoe layer, got ${simplifiedPads.length}`);
+  }
+  if (!wheelLayers.length) failures.push('missing suspension-driven road-wheel layer');
+  if (suspensionLinks.length !== 1) {
+    failures.push(`expected 1 suspension linkage layer, got ${suspensionLinks.length}`);
+  }
+  if (suspensionJoints.length !== 1) {
+    failures.push(`expected 1 suspension joint layer, got ${suspensionJoints.length}`);
+  }
+  if (!receipt) failures.push('missing closed-course receipt');
+  if (!receipt || !pads.length) return { unitId, failures };
+
+  const padMesh = pads[0];
+  const suspensionMesh = suspensionLinks[0];
+  const suspensionJointMesh = suspensionJoints[0];
+  const count = receipt.shoeCountPerSide;
+  if (padMesh.count !== count * 2) {
+    failures.push(`shoe instance count ${padMesh.count} != ${count}×2`);
+  }
+  if (Math.abs(receipt.loopLengthM - receipt.shoePitchM * count) > 1e-6) {
+    failures.push('shoe pitch does not close exactly on loop length');
+  }
+  if (Math.abs(receipt.textureRepeatM - receipt.shoePitchM * 4) > 1e-7) {
+    failures.push('belt texture cadence is not four exact shoes');
+  }
+  if (receipt.shoePadCoverageRatio < 0.88) {
+    failures.push(`broad tread covers only ${round(receipt.shoePadCoverageRatio * 100)}% of each pitch`);
+  }
+  if (padMesh.userData.trackShoePadCoverageRatio !== receipt.shoePadCoverageRatio) {
+    failures.push('broad tread coverage drift between geometry and course receipt');
+  }
+  if (receipt.shoeDetailMode !== 'family-integrated') {
+    failures.push(`deprecated shoe detail mode ${receipt.shoeDetailMode}`);
+  }
+  if (!receipt.trackPatternId || !receipt.trackPatternLabel) {
+    failures.push('missing centrally resolved track-family receipt');
+  }
+  if (padMesh.userData.trackShoeDetailMode !== receipt.shoeDetailMode) {
+    failures.push('shoe detail mode drift between geometry and course receipt');
+  }
+  if (padMesh.userData.trackPatternId !== receipt.trackPatternId) {
+    failures.push('track-family drift between geometry and course receipt');
+  }
+  if (triangleCount(padMesh.geometry) > 200) {
+    failures.push(`shoe geometry exceeds 200-triangle budget (${triangleCount(padMesh.geometry)})`);
+  }
+  const simplifiedPadMesh = simplifiedPads[0];
+  if (simplifiedPadMesh && triangleCount(simplifiedPadMesh.geometry) > 24) {
+    failures.push(`distance shoe exceeds 24-triangle budget (${triangleCount(simplifiedPadMesh.geometry)})`);
+  }
+  if (simplifiedPadMesh && simplifiedPadMesh.instanceMatrix !== padMesh.instanceMatrix) {
+    failures.push('shoe LOD levels do not share the articulated instance buffer');
+  }
+  if (suspensionMesh) {
+    if (!suspensionMesh.isInstancedMesh) failures.push('suspension linkage layer is not instanced');
+    if (suspensionMesh.count !== receipt.suspensionLinkCount) {
+      failures.push(`suspension link count ${suspensionMesh.count} != ${receipt.suspensionLinkCount}`);
+    }
+    if (suspensionMesh.userData.suspensionPattern !== receipt.suspensionPatternId) {
+      failures.push('suspension pattern drift between geometry and running-gear receipt');
+    }
+    const armTriangles = triangleCount(suspensionMesh.geometry);
+    if (armTriangles < 32 || armTriangles > 48) {
+      failures.push(`suspension link geometry is outside shaped 32–48 triangle budget (${armTriangles})`);
+    }
+    if (suspensionMesh.geometry?.type === 'BoxGeometry'
+      || suspensionMesh.userData.suspensionGeometryProfile !== 'tapered-forged-arm-v1') {
+      failures.push('suspension linkage is not a tapered forged arm');
+    }
+    if (suspensionMesh.userData.suspensionPlacement !== 'inboard-behind-road-wheel') {
+      failures.push('suspension linkage is not seated behind the wheel backs');
+    }
+    const inner = suspensionMesh.userData.wheelInnerAbsX;
+    const outboard = suspensionMesh.userData.assemblyOutboardAbsX;
+    const clearance = suspensionMesh.userData.wheelClearanceM;
+    for (const side of ['left', 'right']) {
+      if (!Number.isFinite(inner?.[side]) || !Number.isFinite(outboard?.[side])
+        || !Number.isFinite(clearance)
+        || outboard[side] > inner[side] - clearance + 1e-6) {
+        failures.push(`${side} suspension linkage crosses the road-wheel back face`);
+      }
+    }
+    if (suspensionMesh.castShadow) failures.push('suspension linkage layer must not cast dynamic shadows');
+
+    const wheelCenters = [];
+    for (const wheelLayer of wheelLayers) {
+      for (let i = 0; i < wheelLayer.count; i++) {
+        wheelCenters.push(matrixPose(wheelLayer, i).position);
+      }
+    }
+    const matrix = new THREE.Matrix4();
+    const axleEnd = new THREE.Vector3();
+    const anchorEnd = new THREE.Vector3();
+    let maxAxleGap = 0;
+    for (let i = 0; i < suspensionMesh.count; i++) {
+      suspensionMesh.getMatrixAt(i, matrix);
+      axleEnd.set(0, 0, 0.5).applyMatrix4(matrix);
+      anchorEnd.set(0, 0, -0.5).applyMatrix4(matrix);
+      let nearest = Infinity;
+      for (const center of wheelCenters) {
+        if (Math.sign(center.x) !== Math.sign(axleEnd.x)) continue;
+        nearest = Math.min(nearest, Math.hypot(center.y - axleEnd.y, center.z - axleEnd.z));
+      }
+      maxAxleGap = Math.max(maxAxleGap, nearest);
+      if (anchorEnd.y <= axleEnd.y + receipt.wheelR * 0.25) {
+        failures.push(`suspension link ${i} lacks an elevated hull anchor`);
+      }
+    }
+    if (!Number.isFinite(maxAxleGap) || maxAxleGap > 0.025) {
+      failures.push(`suspension-to-wheel axle gap ${round(maxAxleGap)} m`);
+    }
+  }
+  if (suspensionJointMesh) {
+    if (!suspensionJointMesh.isInstancedMesh) failures.push('suspension joint layer is not instanced');
+    if (suspensionJointMesh.count !== receipt.suspensionJointCount) {
+      failures.push(`suspension joint count ${suspensionJointMesh.count} != ${receipt.suspensionJointCount}`);
+    }
+    if (suspensionJointMesh.userData.suspensionPattern !== receipt.suspensionPatternId) {
+      failures.push('suspension joint pattern drift between geometry and running-gear receipt');
+    }
+    if (suspensionJointMesh.userData.suspensionGeometryProfile !== 'stepped-forged-boss-v1') {
+      failures.push('suspension endpoints are not stepped forged bosses');
+    }
+    if (suspensionJointMesh.userData.suspensionPlacement !== 'inboard-behind-road-wheel') {
+      failures.push('suspension joint layer is not seated behind the wheel backs');
+    }
+    if (triangleCount(suspensionJointMesh.geometry) > 128) {
+      failures.push(`suspension joint geometry exceeds 128-triangle budget (${triangleCount(suspensionJointMesh.geometry)})`);
+    }
+    if (suspensionJointMesh.castShadow) failures.push('suspension joint layer must not cast dynamic shadows');
+  }
+  for (const band of bands) {
+    if (Math.abs(band.userData.trackTextureRepeatM - receipt.textureRepeatM) > 1e-7) {
+      failures.push(`${band.name} texture receipt drift`);
+    }
+  }
+
+  const sidePoses = [0, 1].map((sideIndex) => {
+    const poses = [];
+    for (let i = 0; i < count; i++) poses.push(matrixPose(padMesh, sideIndex * count + i));
+    return poses;
+  });
+  const bandBySide = new Map(bands.map((band) => [band.userData.runningGearSide, band]));
+  const expectedOffset = receipt.shoeOutboardOffset || 0;
+  for (const [sideIndex, side] of [-1, 1].entries()) {
+    const band = bandBySide.get(side);
+    if (!band) continue;
+    const expectedX = band.position.x + side * expectedOffset;
+    const poses = sidePoses[sideIndex];
+    let maxLaneError = 0;
+    for (const pose of poses) {
+      if (pose.scale.lengthSq() < 0.1) continue;
+      maxLaneError = Math.max(maxLaneError, Math.abs(pose.position.x - expectedX));
+    }
+    if (maxLaneError > 1e-5) {
+      failures.push(`side ${side} shoe/belt lane error ${round(maxLaneError)} m`);
+    }
+  }
+  const courseQuarterCounts = [];
+  for (const poses of sidePoses) {
+    const hidden = poses.filter(({ scale }) => scale.lengthSq() < 0.1).length;
+    if (hidden) failures.push(`${hidden} shoe matrices collapsed instead of completing the loop`);
+    let maxGap = 0;
+    let tangentSum = 0;
+    let tangentCount = 0;
+    for (let i = 0; i < poses.length; i++) {
+      const current = poses[i];
+      const next = poses[(i + 1) % poses.length];
+      if (current.scale.lengthSq() < 0.1 || next.scale.lengthSq() < 0.1) continue;
+      const delta = next.position.clone().sub(current.position);
+      const gap = delta.length();
+      maxGap = Math.max(maxGap, gap);
+      if (gap > 1e-6) {
+        const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(current.quaternion);
+        tangentSum += forward.dot(delta.normalize());
+        tangentCount++;
+      }
+    }
+    if (maxGap > receipt.shoePitchM * 1.75) {
+      failures.push(`closed-course shoe gap ${round(maxGap)} m exceeds pitch ${round(receipt.shoePitchM)} m`);
+    }
+    const stations = [];
+    for (const { position, scale } of poses) {
+      if (scale.lengthSq() >= 0.1) stations.push(courseStation(receipt.loopPoints, position));
+    }
+    stations.sort((a, b) => a - b);
+    let maxArcGap = 0;
+    for (let i = 0; i < stations.length; i++) {
+      const next = i + 1 < stations.length ? stations[i + 1] : stations[0] + receipt.loopLengthM;
+      maxArcGap = Math.max(maxArcGap, next - stations[i]);
+    }
+    // Projection at a sharp polygon corner can move the shoe center by up to
+    // roughly half a pitch because the instantiated shoe is offset outward
+    // from the band centerline. A true missing shoe creates a ~2-pitch hole;
+    // keep the gate below that while tolerating the legitimate wrap offset.
+    if (maxArcGap > receipt.shoePitchM * 1.60) {
+      failures.push(`course arc has an uncovered shoe interval ${round(maxArcGap / receipt.shoePitchM)}× pitch`);
+    }
+    const quarters = [0, 0, 0, 0];
+    for (const station of stations) {
+      quarters[Math.min(3, Math.floor((station / receipt.loopLengthM) * 4))]++;
+    }
+    const minimumQuarter = Math.max(1, Math.floor(receipt.shoeCountPerSide / 4) - 1);
+    if (quarters.some((value) => value < minimumQuarter)) {
+      failures.push(`tread does not populate the complete loop (${quarters.join('/')})`);
+    }
+    courseQuarterCounts.push(quarters);
+    const tangentMean = tangentSum / Math.max(1, tangentCount);
+    if (tangentMean < 0.88) failures.push(`shoe tangent mean ${round(tangentMean)} is misaligned`);
+  }
+
+  const parityCount = Math.min(sidePoses[0].length, sidePoses[1].length);
+  let parityError = 0;
+  for (let i = 0; i < parityCount; i++) {
+    const left = sidePoses[0][i], right = sidePoses[1][i];
+    parityError = Math.max(parityError,
+      Math.abs(left.position.y - right.position.y),
+      Math.abs(left.position.z - right.position.z),
+      1 - Math.abs(left.quaternion.dot(right.quaternion)));
+  }
+  if (parityError > 1e-4) failures.push(`left/right course parity error ${round(parityError)}`);
+
+  const laneBySide = new Map(bands.map((band) => [band.userData.runningGearSide, Math.abs(band.position.x)]));
+  const wheelXs = [];
+  for (const wheelLayer of wheelLayers) {
+    for (let i = 0; i < wheelLayer.count; i++) wheelXs.push(matrixPose(wheelLayer, i).position.x);
+  }
+  for (const side of [-1, 1]) {
+    const lane = laneBySide.get(side);
+    let nearestWheel = Infinity;
+    for (const x of wheelXs) {
+      if (Math.sign(x || side) !== side) continue;
+      nearestWheel = Math.min(nearestWheel, Math.abs(Math.abs(x) - lane));
+    }
+    if (!Number.isFinite(nearestWheel) || nearestWheel > receipt.trackW * 0.55) {
+      failures.push(`side ${side} wheels do not share the belt lane`);
+    }
+  }
+
+  for (const z of receipt.wheelZs) {
+    const crossings = intersectionsAtZ(receipt.loopPoints, z);
+    if (crossings.length < 2) {
+      failures.push(`road wheel z=${z} lies outside closed belt envelope`);
+      continue;
+    }
+    const lower = crossings[0], upper = crossings.at(-1);
+    const bottomGap = receipt.wheelY - receipt.wheelR - lower;
+    const topGap = upper - (receipt.wheelY + receipt.wheelR);
+    if (bottomGap < -0.12 || bottomGap > 0.24) {
+      failures.push(`road wheel z=${z} lower alignment gap ${round(bottomGap)} m`);
+    }
+    if (topGap < -0.16) failures.push(`road wheel z=${z} protrudes above return run by ${round(-topGap)} m`);
+  }
+
+  for (const drive of drives) {
+    const gear = drive.userData;
+    if (!gear.sprocketToothCount) continue;
+    const expected = Math.max(4,
+      Math.round((Math.PI * 2 * gear.trackSpinRadiusM) / receipt.shoePitchM));
+    if (Math.abs(gear.sprocketToothCount - expected) > 1) {
+      failures.push(`sprocket teeth ${gear.sprocketToothCount} drift from ${expected} shoe engagements`);
+    }
+  }
+
+  return {
+    unitId,
+    shoeCountPerSide: count,
+    shoePitchM: round(receipt.shoePitchM),
+    shoePadCoverageRatio: receipt.shoePadCoverageRatio,
+    shoeDetailMode: receipt.shoeDetailMode,
+    trackPatternId: receipt.trackPatternId,
+    trackPatternLabel: receipt.trackPatternLabel,
+    shoeGeometryTriangles: triangleCount(padMesh.geometry),
+    shoeInstances: padMesh.count,
+    shoeRenderedTriangles: triangleCount(padMesh.geometry) * padMesh.count,
+    courseQuarterCounts,
+    loopLengthM: round(receipt.loopLengthM),
+    roadWheelStations: receipt.wheelZs.length,
+    roadWheelZs: receipt.wheelZs.map(round),
+    wheelRadiusM: round(receipt.wheelR),
+    wheelCenterYM: round(receipt.wheelY),
+    trackWidthM: round(receipt.trackW),
+    trackThicknessM: round(receipt.trackTh),
+    suspensionPatternId: receipt.suspensionPatternId,
+    suspensionPatternLabel: receipt.suspensionPatternLabel,
+    suspensionLinks: suspensionMesh?.count || 0,
+    suspensionTrianglesPerLink: suspensionMesh ? triangleCount(suspensionMesh.geometry) : 0,
+    suspensionJoints: suspensionJointMesh?.count || 0,
+    suspensionJointTriangles: suspensionJointMesh ? triangleCount(suspensionJointMesh.geometry) : 0,
+    laneCentersM: { left: round(receipt.xcLeft), right: round(receipt.xcRight) },
+    sprocket: { ...receipt.sprocket, z: round(receipt.sprocket.z), y: round(receipt.sprocket.y), r: round(receipt.sprocket.r) },
+    idler: { ...receipt.idler, z: round(receipt.idler.z), y: round(receipt.idler.y), r: round(receipt.idler.r) },
+    failures: [...new Set(failures)],
+  };
+}
+
+try {
+  if (!id) throw new Error('missing id');
+  const tank = createTank(id, {
+    setupShadowMaterial: (material) => material,
+    anisotropy: 1,
+    renderer: null,
+  }, {
+    camoSeed: 4242,
+    quality: 'high',
+    proceduralOnly: true,
+    geometryReceipt: true,
+  });
+  tank.root.updateMatrixWorld(true);
+  const hull = tank.root.getObjectByName('rig_hull');
+  const objects = [];
+  tank.root.traverse((object) => {
+    if (object.userData?.runningGear) objects.push(object);
+  });
+  const receipts = hull?.userData.runningGearReceipts || [];
+  const unitIdSet = new Set();
+  for (const object of objects) {
+    const unitId = object.userData.runningGearUnitId;
+    if (Number.isInteger(unitId)) unitIdSet.add(unitId);
+  }
+  const unitIds = [...unitIdSet].sort((a, b) => a - b);
+  const units = unitIds.map((unitId) => inspectUnit(
+    unitId,
+    receipts.find((receipt) => receipt.unitId === unitId),
+    objects,
+  ));
+  const failures = units.flatMap((unit) => unit.failures.map((failure) => `unit ${unit.unitId}: ${failure}`));
+  window.__TRACK_SYSTEM_AUDIT = { id, units, failures, pass: units.length > 0 && failures.length === 0 };
+  if (roundMode) {
+    const visualTank = createTank(id, null, {
+      camoSeed: 4242,
+      quality: 'high',
+      proceduralOnly: true,
+    });
+    await stageRoundSurface(visualTank);
+  }
+} catch (error) {
+  window.__TRACK_SYSTEM_AUDIT = { id, error: String(error?.stack || error), pass: false };
+  if (roundMode) {
+    window.__TRACK_ROUND_AUDIT = { id, view: roundView, error: String(error?.stack || error) };
+    window.__TRACK_ROUND_READY = true;
+  }
+}
+window.__TRACK_SYSTEM_READY = true;
+</script>

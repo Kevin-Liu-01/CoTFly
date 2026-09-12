@@ -1,0 +1,187 @@
+# A7V X and Revolution: fitted return rollers
+
+Only `leo2a7v_x` and `leo2_revolution` opt in. This delivery is isolated from
+published `508bb19b0`; it does not activate the separately developed A4M X,
+A5 X or KF51 X changes. There is no `leo2_revolution_x` registry alias.
+
+## Source basis and geometry
+
+The Slovak Ministry of Defence's [October 2009 military publication](https://www.mod.gov.sk/data/files/1420.pdf),
+printed page 26 (PDF page 25), explicitly describes four return rollers per
+side on Leopard 2. The count follows that real chassis arrangement; the
+stations below are fitted to each existing procedural model, not claimed
+measurements of the source document or copied A6M stations.
+
+| Vehicle | Fitted Z stations (m) | Axle absolute X (m) |
+| --- | --- | ---: |
+| Leopard 2A7V X | −2.05, −0.35, 1.25, 2.20 | 1.300 |
+| Leopard 2 Revolution | −1.93, −0.29, 1.25, 2.06 | 1.132 |
+
+Each vehicle gains eight real 95 mm-radius, 160 mm-wide rotors and eight
+finite painted spindles. The shared closed `efficientReturnRoller` primitive
+has rubber crown and camouflage-aware wheel-metal groups. Native running
+gear owns rotor placement, spin, damage and disposal; stationary shafts
+share the hull owner and remain visible with the rollers at distant LODs.
+The shafts extend from absolute X 0.965 m into the finite hubs, with more
+than 25 mm lap into the existing hull skin. No floating decorative supports
+or material-only substitutes are added.
+
+The helper adds fitted upper support spans through the canonical track-loop
+builder. It retains the original end crowns, complete lower course/contact
+and lower end arcs, road-wheel geometry/axles, suspension settings, hull,
+turret, cannon and authored equipment. Actual track length and pitch are
+recomputed by the same native course; the formerly unsupported upper run
+is not falsely described as unchanged. Neither target needs inner-band
+lining or the protected-outer-face option.
+
+Complete rotor plus spindle cost is **160 triangles HIGH / 80 LOW**, or
+**1,280 / 640** across each vehicle's eight instances. The published general
+roller recipe would cost 336 / 192 per assembly. Required roller count,
+positive stock and finite attachment are retained. This is not a complete
+vehicle performance, draw-call or tank-switch-latency acceptance claim.
+
+## Focused contract
+
+The two-ID test retains the five-model candidate's exact physical checks,
+without importing or authenticating the unrelated A5 lining. It compares
+all original authored emissions and actual body/material/rig/road-wheel
+buffers against an exact old-gear-input control. It measures every native
+road axle reaching the rig's configured compression and droop, checks finite
+road/band/near-and-far-shoe stock throughout motion, and checks actual
+render-eligible support gaps at 15, 75 and 200 m. The fixed support limit is
+6 mm and numerical nonpenetration tolerance remains 2 micrometres.
+
+The independently calibrated shared test helper and its default/hydraulic/
+override regression are included because they are absent from this main
+baseline. They do not change runtime suspension. Apart from the two profile
+call sites and new helper, the only core edit exports the existing
+`RunningGearConfig` type. No global roller default changes.
+
+The existing A6M eight-roller HIGH/LOW control and the T-62MV-1 X zero-roller
+control remain executable. The latter follows the US Army's description of
+the [rollerless T-62 in FM 100-2-3](https://www.trngcmd.marines.mil/Portals/207/Docs/MCIS/ITEP/RITC-East/FM%20100-2-3.pdf).
+Invalid stations and roots plus a deliberately raised penetrating roller
+are rejecting controls. Rotor/spindle geometry and instance buffers must
+each be disposed exactly once, including the real far battle LOD.
+
+## Fresh results on the isolated two-ID tree
+
+The implementation is saved locally as `53ebf5e44`. Fresh focused checks
+PASS: 16 actual native Node constructions, 256 motion poses and 12 rejecting
+controls, plus the shared calibration unit's nine measured poses and three
+rejecting controls. Each native road axle reaches configured +0.30 m
+compression and −0.22 m droop within the unchanged tolerance.
+
+| Vehicle | Minimum road-stock separation, H / L (mm) | Maximum rendered-support gap, H / L (mm) |
+| --- | ---: | ---: |
+| Leopard 2A7V X | 41.050 / 41.045 | 0.858 / 3.275 |
+| Leopard 2 Revolution | 20.916 / 20.983 | 0.815 / 3.243 |
+
+The gap checks retain actual band/shoe visibility, material groups, element
+counts and LOD state at all three distances. Here the real draw-eligible
+band supports the rollers; the farther shoes alone are not mislabeled as
+contacting. The complete continuous shoe bound is at least 10.701 mm for
+A7V and 8.701 mm for Revolution. Maximum sampled track numerical residual
+is only 0.042 micrometres, inside the unchanged 2 micrometre tolerance.
+Finite mounting, exact retained body/road/lower-course witnesses, LOW/far
+persistence, A6M/T62 controls and exact-once geometry/instance disposal pass.
+
+Both receipts record identical before/after input hashes and exclude private
+oracles and temporary QA from the commit:
+
+- `.qa-dev/leopard-priority-focused-qO9uX1/receipt.json`: PASS. SHA-256
+  `c25d4f06ef454ceb11fc151b8fd745bc4c475bde0df44540981ac7996433d67a`.
+- `.qa-dev/leopard-priority-types-tgGNNj/receipt.json`: full
+  `npm run typecheck` and `core-unused-check` PASS. SHA-256
+  `b49e9cc167155c5fb8a8c40880e2fccfe4fe656e261154823503967c55a9ce32`.
+
+These focused tests are procedural Node geometry and render-state checks,
+not GPU pixels. Earlier five-model passes do not substitute for these fresh
+receipts; neither full-fleet performance nor publication is claimed here.
+
+## Native rendering and early source comparison
+
+The exact isolated implementation also passed 48 native GPU captures:
+two vehicles × HIGH/LOW geometry × factory/winter finish × front-left,
+rear-left and left views × 15/75 m, at 1200 × 800. Texture quality stayed
+HIGH independently of geometry quality. Input-stability and finish-pair
+checks passed with no rendering errors. Near-view review found no visible
+running-gear blocker. Skirts occlude most return rollers, so these pictures
+are not substituted for the explicit count and contact measurements above.
+
+- Native receipt: `.qa-dev/priority-leopard-release-GUep7p/receipt.json`,
+  SHA-256 `37b1e046f0a623b741252287110d22532bf45f9bb2dfc0804deea7f055df71d5`.
+- Native manifest: `.qa-dev/priority-leopard-release-GUep7p/native/tank-assets.json`,
+  SHA-256 `24b9c70e2563b3466b633db4bbd1609994e96e6d03e96f848bad66786e5ab825`.
+
+An early HIGH-geometry source diagnostic passed all nine original-policy
+views per vehicle, with zero browser errors or unavailable references:
+
+| Vehicle | Aggregate fidelity | Lowest view | Unchanged per-view floor |
+| --- | ---: | ---: | ---: |
+| Leopard 2A7V X | 94.031929 | 92.246480, left | 92 |
+| Leopard 2 Revolution | 93.912351 | 92.031900, left | 92 |
+
+Revolution's margin is only 0.031900 points; do not describe it as a broad
+accuracy margin. No scoring, camera, registration, threshold or runtime
+changes were made to obtain this pass. The diagnostic used the isolated
+cache/resource-cleanup runner now published in `f9f3a4cfa`, with the priority
+tree's unchanged scoring page and source registrations. Its receipt pins
+the exact external runner and matching before/after runtime/oracle hashes:
+`.qa-dev/leopard-priority-source-early-RJHUSc/receipt.json`, SHA-256
+`042ed518589f367795ce6bbbd35fb70616a24301f8a42de998d5ad893d897a1c`.
+
+## Anatomy and generated-asset preflight
+
+The required anatomy update/check sequence also passed, using separate FIFO
+leases per phase. All 174 playable anatomy and marking receipts are current;
+combat-anatomy tests pass, and 1,496 modules plus 348 track sides produce zero
+hit-probe failures or outside-envelope modules. The probe retains 79 fleet
+dimension-drift warnings; this roller pass does not claim to fix those
+existing fleet dimension differences. All 522 playable technical diagrams
+passed geometry/metadata freshness. The two requested tanks then regenerated
+their 20 normal/technical gallery outputs. No unrelated output changed.
+
+Only `tracks` changed in the two generated anatomy rows: hull, turret,
+structures, crew and module data remain identical. Generated images and
+manifest changes are limited to `leo2a7v_x` and `leo2_revolution`.
+
+Nine-phase preflight receipt:
+`.qa-dev/priority-leopard-release-uc4HQY/receipt.json`, SHA-256
+`3b65051024b55f23e3963f4ccf7dccf2b6c5be24d95f4c8e6e8c49c7acedfc9c`.
+
+The early source run and anatomy preflight are not a complete release. The
+composed two-ID release gate remains required before pushing the playable
+changes. Private source meshes and temporary captures remain excluded from
+tracked changes.
+
+## First composed release: targeted gates pass, regression run blocked
+
+The fresh two-ID composed command on `ae57717a8` passed anatomy freshness,
+centering, module alignment/hits, gallery freshness, track duplication,
+round barrels and open bores, nine-view source fidelity, strict geometry,
+track clipping/sweep, contiguity and fittings. Raw geometry minima are
+92.207143 for A7V and 92.031900 for Revolution against the unchanged 92
+floor. Only those two geometry-gate records and ledger rows changed.
+
+The command then failed in npm PRE at the unrelated
+`chieftain10XMk5Foundation.selftest.mjs` immutable Mk5 scene assertion.
+The failed receipt is retained unchanged and is **not** a release pass:
+`.qa-dev/priority-leopard-release-abi9JJ/receipt.json`, SHA-256
+`3ccbe02e4b84a5af2d02671936776a905909e26b24b1e8f78f18055828992c77`.
+All tracked runtime/tool/test inputs remained unchanged throughout that run.
+CORE, POST and the private build were not reached. A fresh complete release
+remains required before publication; neither the targeted passes nor later
+diagnostic continuations waive this regression failure.
+
+## Complete integration acceptance
+
+The unchanged roller implementation subsequently passed the complete
+[nine-ID release](nine-tank-bodywork-rollers-integration-20260909.md#complete-nine-id-release--pass)
+at `6c27d4f2d`: all target gates, 858 ordered regressions, and both builds.
+Its actual roller regression includes 16 builds, 256 articulated poses and
+12 rejecting controls, with all original body/road-wheel witnesses retained.
+The runtime projection metadata was synchronized to the existing captured
+images; no image or anchor was re-framed. This supersedes the unfinished
+release boundary above without relabelling any failed receipt. Broader
+unpublished return-roller candidates remain outside this checkpoint.

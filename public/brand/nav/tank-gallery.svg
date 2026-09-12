@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 64" role="img" aria-label="Tank Gallery — three vehicle silhouettes compared">
+  <defs>
+    <g id="gallery-tank" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 21h36l6 5-5 7H10l-7-6Z" fill="currentColor" stroke="#edf3f7" stroke-width="2"/>
+      <path d="M12 15h23l7 6H8Z" fill="currentColor" stroke="#edf3f7" stroke-width="2"/>
+      <path d="M19 10h13l4 5H15Z" fill="currentColor" stroke="#edf3f7" stroke-width="2"/>
+      <path d="m32 12 17-5" stroke="#edf3f7" stroke-width="2.5"/>
+      <path d="M9 27h34" stroke="#070b0e" stroke-width="2"/>
+    </g>
+  </defs>
+  <g color="#45c7ff" opacity=".72" transform="translate(2 3) scale(.88)"><use href="#gallery-tank" data-vehicle="strv103a"/></g>
+  <g color="#ff4d62" opacity=".82" transform="translate(22 13) scale(.88)"><use href="#gallery-tank" data-vehicle="t90m"/></g>
+  <g color="#263844" transform="translate(42 23) scale(.88)"><use href="#gallery-tank" data-vehicle="m1a2"/></g>
+</svg>

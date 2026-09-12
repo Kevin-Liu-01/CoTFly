@@ -1,0 +1,714 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { compileFunction } from 'node:vm';
+import { webcrypto } from 'node:crypto';
+import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshStandardMaterial,
+  Group, Scene, PerspectiveCamera, SpotLight, PointLight, InstancedMesh, Matrix4, BoxGeometry } from 'three';
+import ts from 'typescript-compiler-api';
+import { inspectNightHeadlight, inspectNightWindow } from '../src/dev/nightWindowInspection.ts';
+import { markVehicleNightLens, prepareVehicleNightLensParts, registerVehicleNightLensMesh } from '../src/vehicles/vehicleNightLighting.ts';
+import { inspectNightWorldFixture } from '../src/dev/nightWorldFixtureInspection.ts';
+import { markWorldWindowPane } from '../src/world/worldNightEmissionGeometry.ts';
+import { installNightEmissionMask } from '../src/engine/nightEmissionMaterial.ts';
+import airfieldConfig from '../src/world/maps/airfield.ts';
+import { selectBattleWeather } from '../src/engine/battleWeatherPolicy.ts';
+
+// Execute actual maintained functions without importing the browser-owning CLI.
+const source = readFileSync(new URL('./daynight-atmosphere-probe.mjs', import.meta.url), 'utf8');
+const tree = ts.createSourceFile('daynight-atmosphere-probe.mjs', source,
+  ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+function load(name, bindings = {}) {
+  const nodes = tree.statements.filter(node => ts.isFunctionDeclaration(node) && node.name?.text === name);
+  assert.equal(nodes.length, 1, `unambiguous production function ${name}`);
+  return compileFunction(`return (${nodes[0].getText(tree)});`, Object.keys(bindings))(...Object.values(bindings));
+}
+
+// A swallowed battle-entry failure leaves Garage with an empty roster. That
+// empty array must never satisfy the staged battle's readiness barrier.
+{
+  const game = {phase: 'garage', player: null, tanks: [], preBattleS: 0};
+  const window = {__DEBUG: {game, beginSoloBattle: async () => {}}};
+  let waits = 0;
+  const stage = load('stage', {window,
+    evaluateWithin: async (fn, argument) => fn(argument),
+    page: {waitForFunction: async () => {waits++;}},
+  });
+  await assert.rejects(stage('winter'), /returned in garage without an active player/);
+  assert.equal(waits, 0, 'failed entry is rejected before a visual readiness wait');
+}
+
+function observerFixture() {
+  let now = 0, nextTimer = 0;
+  const timers = new Map(), window = {}, calls = [];
+  const result = {}, failure = new Error('original render failed');
+  const post = { shouldThrow: false, render(...args) {
+    calls.push({ receiver: this, args });
+    if (this.shouldThrow) throw failure;
+    return result;
+  } };
+  const original = post.render;
+  load('installFrameWait', { window, performance: { now: () => now },
+    setInterval(callback) { const id = ++nextTimer; timers.set(id, callback); return id; },
+    clearInterval(id) { timers.delete(id); },
+  })({ progressMs: 5000, settleMs: 30000 });
+  const probe = window.__equipmentDamageProbe;
+  probe.install(post);
+  return { probe, post, original, calls, result, failure, timers,
+    advance(ms) { now += ms; for (const callback of [...timers.values()]) callback(); } };
+}
+
+{
+  const f = observerFixture();
+  assert.throws(() => f.probe.install(f.post), /already installed/);
+  const epoch = f.probe.beginStateEpoch();
+  const wait = f.probe.waitForFrames(2);
+  await assert.rejects(f.probe.waitForFrames(1), /overlapping/);
+  assert.strictEqual(f.post.render(.016, 'extra'), f.result);
+  assert.equal(f.probe.renderReceipt().renderCount, 1);
+  f.post.shouldThrow = true;
+  assert.throws(() => f.post.render(.02), error => error === f.failure);
+  assert.equal(f.probe.renderReceipt().renderCount, 1, 'throwing original render is not progress');
+  f.post.shouldThrow = false;
+  f.post.render(.03);
+  assert.deepEqual(await wait, { epoch, startFrame: 0, endFrame: 2, completed: 2 });
+  assert.deepEqual(f.calls.map(call => call.args), [[.016, 'extra'], [.02], [.03]]);
+  assert(f.calls.every(call => call.receiver === f.post), 'original this/order/arguments/results retained');
+  assert.equal(f.timers.size, 0);
+  assert.deepEqual(f.probe.dispose(), { restored: true, pendingWait: false, renderCount: 2 });
+  assert.strictEqual(f.post.render, f.original);
+  assert.equal(f.probe.dispose().restored, true, 'cleanup idempotent');
+}
+{
+  const f = observerFixture(), wait = f.probe.waitForFrames(1);
+  const rejected = assert.rejects(wait, /No completed post.render/);
+  f.advance(5000); await rejected;
+  assert.equal(f.timers.size, 0, 'no render/rAF-only activity cannot satisfy the wait');
+  f.probe.dispose();
+}
+{
+  const f = observerFixture(), wait = f.probe.waitForFrames(100);
+  const rejected = assert.rejects(wait, /Render settle deadline/);
+  for (let i = 0; i < 9; i++) { f.advance(3000); f.post.render(.016); }
+  f.advance(3000); await rejected;
+  assert.equal(f.timers.size, 0, 'progress cannot extend the absolute deadline');
+  f.probe.dispose();
+}
+{
+  const f = observerFixture(), wait = f.probe.waitForFrames(1);
+  const rejected = assert.rejects(wait, /State changed/);
+  f.probe.beginStateEpoch(); f.post.render(.016); await rejected;
+  f.probe.dispose();
+}
+{
+  const f = observerFixture(), wait = f.probe.waitForFrames(1);
+  const rejected = assert.rejects(wait, /disposed during wait/);
+  f.probe.dispose(); await rejected;
+  assert.equal(f.timers.size, 0);
+}
+{
+  const f = observerFixture(), replacement = () => {};
+  f.post.render = replacement;
+  assert.throws(() => f.probe.dispose(), /ownership changed/);
+  assert.strictEqual(f.post.render, replacement, 'never overwrite a foreign replacement on cleanup');
+}
+
+const lightingReceipt = load('lightingReceipt');
+const assertRenderedState = load('assertRenderedState', { assert });
+const assertScreenshotState = load('assertScreenshotState', { assert, assertRenderedState });
+const validNightLightState = load('validNightLightState');
+const checkNightLightingCycle = load('checkNightLightingCycle', { validNightLightState });
+const checks = load('checkAtmosphereCase', { lightingReceipt,
+  clearWeatherState: load('clearWeatherState'), actualLightingChanges: load('actualLightingChanges'),
+  requestedScenarios: load('requestedScenarios'), checkNightLightingCycle });
+const weather = (timeOfDay, seed) => ({ version: 2, seed, biome: 'cold', condition: 'clear',
+  precipitationIntensity: 0, cloudOpacityMultiplier: 1, fogDensityMultiplier: 1, timeOfDay });
+const state = (timeOfDay, seed) => ({
+  weather: weather(timeOfDay, seed), phase: 'battle', mapId: 'winter',
+  precipitationAttached: false, preset: 'mobile', fogDensity: .0002,
+  skies: [timeOfDay === 'night' ? .035 : 1],
+  directional: [timeOfDay === 'night' ? .32 : 3.8], directionalColors: [[1, 1, 1]],
+  hemi: .4, hemiColor: [1, 1, 1], clouds: [1.1, 1], cloudDecks: [],
+  fogColor: [.1, .2, .3], environmentIntensity: 1, cloudShadeAmp: .1,
+  worldUuid: 'same-world', camera: [[1, 2, 3], [0, 0, 0, 1], 50], playerPose: [1], raster: [2360, 1640],
+  nightLighting: { ownerAvailable: true, uuid: 'pool', attached: timeOfDay === 'night',
+    emitterCount: timeOfDay === 'night' ? 3 : 0, playerCoverage: { headlights: 2, shtora: 0 },
+    lights: ['spot', 'spot', 'point'].map((kind, index) => ({ kind, uuid: `lamp-${index}`,
+      intensity: timeOfDay === 'night' ? 80 : 0, castShadow: false, shadowMap: false })),
+    materials: [{ uuid: 'lens', masked: true, kind: 'masked', color: [1, 1, 1],
+      intensity: timeOfDay === 'night' ? 3 : 0, version: 1 }] },
+  render: { stateEpoch: 1, completedEpoch: 1, renderCount: 30 },
+});
+const good = { mapId: 'winter', day: state('day', 1), night: state('night', 3), restored: state('day', 1),
+  legacy: [state('day', 13), state('night', 3)],
+  expected: [weather('day', 1), weather('night', 3), weather('day', 1), weather('day', 13), weather('night', 3)] };
+const validStreetLampFixture = load('validStreetLampFixture');
+const validOccupiedWindowFixture = load('validOccupiedWindowFixture');
+const focusedChecks = load('checkFocusedFixtureCase', { checkNightLightingCycle, validStreetLampFixture });
+const requestedVehicleFixtures = load('requestedVehicleFixtures', { assert });
+const worldFixtureCases = load('worldFixtureCases');
+assert.deepEqual(worldFixtureCases(), [['urban', 'structure-window'], ['airfield', 'relay-beacon'], ['coastal', 'lighthouse']]);
+assert(airfieldConfig.props.tacticalBeats.some(beat => beat.id === 'eastern-radar-berm' && beat.structure === 'relaystation'),
+  'relay proof targets an explicitly authored fixture, not an optional congested Urban placement');
+assert.deepEqual(requestedVehicleFixtures([]), []);
+assert.deepEqual(requestedVehicleFixtures(['--vehicle-fixtures=m1a3,mbt70,t90m,t90m_proryv']),
+  ['m1a3', 'mbt70', 't90m', 't90m_proryv']);
+for (const value of ['', 'm1a3,m1a3', 'proryv', 'm1a3,mbt70,t90m,t90m_proryv,m1a1']) {
+  assert.throws(() => requestedVehicleFixtures([`--vehicle-fixtures=${value}`]), /canonical repair IDs/);
+}
+function focusedRow(kind) {
+  const row = { ...structuredClone(good), kind,
+    specId: kind === 'shtora' ? 't90a_vladimir' : 'm1a1',
+    fixture: { kind, ownerUuid: 'authored-mesh', materialUuid: 'lens', slot: 7,
+      ownerName: kind === 'streetlamp' ? 'destructible-lamp' : '', mask: 1, faceIndex: 12,
+      point: [1.2, 2, 3], sourcePoint: [1, 2, 3], lineOfSight: 'authored-emissive-face' } };
+  for (const state of [row.day, row.night, row.restored]) {
+    state.preset = 'high'; state.playerSpecId = row.specId;
+    state.nightLighting.playerCoverage.shtora = 2;
+    for (const light of state.nightLighting.lights) light.position = [1, 2, 3];
+  }
+  return row;
+}
+for (const kind of ['shtora', 'streetlamp']) {
+  const row = focusedRow(kind);
+  assert(Object.values(focusedChecks(row)).every(Boolean));
+  for (const mutate of [
+    row => { row.fixture.materialUuid = 'unrelated-glowing-glass'; },
+    row => { row.night.playerSpecId = 'wrong-tank'; },
+    row => { row.night.mapId = 'wrong-map'; },
+    row => { row.night.camera[0][0]++; },
+    row => { row.night.nightLighting.materials[0].intensity = 0; },
+    row => { row.restored.nightLighting.materials[0].intensity = 3; },
+    row => { row.night.render.completedEpoch = -1; },
+  ]) {
+    const failed = structuredClone(row); mutate(failed);
+    assert(Object.values(focusedChecks(failed)).some(value => !value));
+  }
+}
+{
+  const row = focusedRow('shtora'); row.fixture.lineOfSight = null;
+  assert.equal(focusedChecks(row).authoredShtora, false, 'property-only Shtora coverage is not exposed-aperture evidence');
+  row.fixture.lineOfSight = 'authored-emissive-face'; row.night.nightLighting.playerCoverage.shtora = 0;
+  assert.equal(focusedChecks(row).authoredShtora, false);
+}
+{
+  const row = focusedRow('streetlamp'); row.fixture.slot = null;
+  assert.equal(focusedChecks(row).actualStreetPool, false, 'window fallback cannot substitute for an actual lamp slot');
+  row.fixture.slot = 7; row.night.nightLighting.lights[2].position = [100, 2, 3];
+  assert.equal(focusedChecks(row).actualStreetPool, false, 'a point light on another fixture is not a pool beneath this lamp');
+}
+{
+  const row = focusedRow('streetlamp');
+  row.night.nightLighting.lights.filter(light => light.kind === 'spot').forEach(light => { light.intensity = 0; });
+  assert(Object.values(focusedChecks(row)).every(Boolean), 'a distant lamp view does not require out-of-range player spotlights');
+  assert.equal(checkNightLightingCycle(row, [row.day, row.night, row.restored]), false,
+    'default battle/vehicle cycle retains its active player-headlight requirement');
+  for (const mutate of [
+    row => { row.fixture.lineOfSight = null; },
+    row => { row.fixture.ownerName = 'generic-glass'; },
+    row => { row.fixture.mask = 0; },
+    row => { row.fixture.faceIndex = null; },
+    row => { row.fixture.faceIndex = -1; },
+    row => { row.fixture.sourcePoint = null; },
+    row => { row.fixture.sourcePoint[0] += 1; },
+    row => { row.night.nightLighting.lights[2].intensity = 0; },
+    row => { row.night.nightLighting.lights[2].castShadow = true; },
+    row => { row.night.nightLighting.lights[0].intensity = NaN; },
+    row => { row.night.nightLighting.lights.pop(); },
+    row => { row.restored.nightLighting.attached = true; },
+  ]) {
+    const bad = structuredClone(row); mutate(bad);
+    assert(Object.values(focusedChecks(bad)).some(value => !value), 'remote fixture still requires exact visible source, bounded pool and reset');
+  }
+}
+const worldFixtureChecks = load('checkWorldFixtureCase', { checkFocusedFixtureCase: focusedChecks,
+  clearWeatherState: load('clearWeatherState') });
+for (const [kind, ownerName, mask, slot, intensity] of [
+  ['structure-window', 'destructible-securityoffice', 1, 7, 1.2],
+  ['relay-beacon', 'destructible-relaystation', 2, 3, 1.2],
+  ['lighthouse', '', 1, null, 2],
+]) {
+  const row = focusedRow(kind);
+  Object.assign(row.fixture, { ownerName, mask, slot, faceIndex: 12 });
+  for (const value of [row.day, row.night, row.restored]) {
+    const lens = value.nightLighting.materials[0];
+    value.nightLighting.materials.push({ ...lens, uuid: 'actual-fixture', kind: 'fixture',
+      intensity: value === row.night ? intensity : 0 });
+  }
+  row.fixture.materialUuid = 'actual-fixture';
+  assert(Object.values(worldFixtureChecks(row)).every(Boolean), `${kind}: actual fixture intensity and reset`);
+  const distant = structuredClone(row);
+  distant.night.nightLighting.lights.forEach(light => { light.intensity = 0; });
+  distant.night.nightLighting.materials = distant.night.nightLighting.materials.filter(material => material.uuid === 'actual-fixture');
+  distant.day.nightLighting.materials = distant.day.nightLighting.materials.filter(material => material.uuid === 'actual-fixture');
+  distant.restored.nightLighting.materials = distant.restored.nightLighting.materials.filter(material => material.uuid === 'actual-fixture');
+  assert(Object.values(worldFixtureChecks(distant)).every(Boolean), `${kind}: emission-only remote fixture has no unrelated spotlight/radiance requirement`);
+  for (const mutate of [
+    row => { row.fixture.mask = 0; },
+    row => { row.fixture.faceIndex = null; },
+    row => { row.fixture.faceIndex = -1; },
+    row => { row.fixture.lineOfSight = null; },
+    row => { row.fixture.slot = -1; },
+    row => { row.fixture.materialUuid = 'lens'; },
+    row => { row.night.nightLighting.materials[1].kind = 'masked'; },
+    row => { row.night.nightLighting.materials[1].intensity = 0; },
+    row => { row.restored.nightLighting.materials[1].intensity = intensity; },
+    row => { row.night.weather.condition = 'rain'; },
+  ]) {
+    const bad = structuredClone(row); mutate(bad);
+    assert(Object.values(worldFixtureChecks(bad)).some(value => !value), `${kind}: reject false source/reset receipt`);
+  }
+  if (kind !== 'lighthouse') {
+    const bad = structuredClone(row); bad.fixture.ownerName = 'destructible-vent';
+    assert.equal(worldFixtureChecks(bad).actualWorldAperture, false, 'generic vents cannot masquerade as windows or bulbs');
+  }
+}
+{
+  const lowLamp = focusedRow('streetlamp'); lowLamp.night.nightLighting.materials[0].intensity = 1.2;
+  assert.equal(focusedChecks(lowLamp).exactEmitterRadiance, false, 'original streetlamp/Shtora radiance gate remains three');
+}
+{
+  const vehicleChecks = load('checkVehicleFixtureCase', { checkFocusedFixtureCase: focusedChecks,
+    clearWeatherState: load('clearWeatherState') });
+  const row = focusedRow('headlight'); row.fixture.faceIndex = 8;
+  assert(Object.values(vehicleChecks(row)).every(Boolean));
+  for (const mutate of [
+    row => { row.fixture.lineOfSight = null; },
+    row => { row.fixture.faceIndex = null; },
+    row => { row.night.playerSpecId = 'fallback-vehicle'; },
+    row => { row.night.nightLighting.playerCoverage.headlights = 0; },
+    row => { row.night.nightLighting.lights.filter(light => light.kind === 'spot').forEach(light => { light.intensity = 0; }); },
+    row => { row.night.nightLighting.materials[0].intensity = 0; },
+    row => { row.restored.nightLighting.materials[0].intensity = 3; },
+    row => { row.night.weather.condition = 'snow'; },
+  ]) {
+    const bad = structuredClone(row); mutate(bad);
+    assert(Object.values(vehicleChecks(bad)).some(value => !value));
+  }
+}
+assert(Object.values(checks(good, 'mobile')).every(Boolean));
+for (const mutate of [
+  row => { row.legacy[0].weather.condition = 'rain'; },
+  row => { row.legacy[0].precipitationAttached = true; },
+  row => { row.legacy[1].weather.timeOfDay = 'day'; },
+  row => { row.legacy[0].weather.seed = 999; },
+  row => { row.night.weather.biome = 'tropical'; },
+  row => { row.night.mapId = 'verdant'; },
+  row => { row.night.phase = 'garage'; },
+  row => { row.night.skies = [1]; },
+  row => { row.night.directional = [3.8]; },
+  row => { row.night.clouds = [.8, .8]; },
+  row => { row.day.clouds = row.night.clouds = row.restored.clouds = []; },
+  row => { row.night.fogDensity *= 1.2; },
+  row => { row.restored.hemi = .28; },
+  row => { row.restored.environmentIntensity = .035; },
+  row => { row.night.worldUuid = 'replacement'; },
+  row => { row.night.playerPose = [2]; },
+  row => { row.night.camera[0][0] = 99; },
+  row => { row.night.preset = 'high'; },
+  row => { row.night.raster = [1180, 820]; },
+  row => { row.night.render.completedEpoch = 0; },
+  row => { row.night.render.renderCount = 0; },
+  row => { row.night.nightLighting.attached = false; },
+  row => { row.night.nightLighting.emitterCount = 0; },
+  row => { row.night.nightLighting.playerCoverage.headlights = 0; },
+  row => { row.night.nightLighting.lights[0].castShadow = true; },
+  row => { row.night.nightLighting.lights[1].shadowMap = true; },
+  row => { row.night.nightLighting.lights[0].intensity = NaN; },
+  row => { row.night.nightLighting.lights.push(row.night.nightLighting.lights[0]); },
+  row => { row.night.nightLighting.lights.forEach(light => { light.intensity = 0; }); },
+  row => { row.night.nightLighting.materials[0].intensity = 0; },
+  row => { row.restored.nightLighting.uuid = 'reconstructed-pool'; },
+  row => { row.restored.nightLighting.materials[0].intensity = 3; },
+  row => { row.restored.nightLighting.materials[0].version++; },
+  row => { row.restored.nightLighting.lights[0].uuid = 'reconstructed-light'; },
+  row => { row.legacy[1].nightLighting.lights[0].uuid = 'replaced-legacy-light'; },
+  row => { row.restored.nightLighting.lights[0].intensity = 80; },
+  row => { row.restored.nightLighting.attached = true; },
+]) {
+  const bad = structuredClone(good); mutate(bad);
+  assert(Object.values(checks(bad, 'mobile')).some(value => !value), 'reject broken actual scenario/lighting/render receipt');
+}
+{
+  const changedPattern = structuredClone(good);
+  changedPattern.night.cloudDecks = [{ offset: [.8, .2], rotation: [0, 1] }];
+  assert(Object.values(checks(changedPattern, 'mobile')).every(Boolean),
+    'night sun elevation may change cloud phase; only authored opacity/density stay invariant');
+}
+assertScreenshotState(good.day, { ...good.day, render: { ...good.day.render, renderCount: 31 } });
+for (const mutate of [
+  snapshot => { snapshot.render.completedEpoch = 0; },
+  snapshot => { snapshot.render.stateEpoch = snapshot.render.completedEpoch = 2; },
+  snapshot => { snapshot.render.renderCount = 29; },
+  snapshot => { snapshot.weather.seed = 88; },
+  snapshot => { snapshot.camera[0][0] = 88; },
+  snapshot => { snapshot.mapId = 'monsoon'; },
+]) {
+  const bad = structuredClone(good.day); mutate(bad);
+  assert.throws(() => assertScreenshotState(good.day, bad), assert.AssertionError);
+}
+const validNativeGraphics = load('validNativeGraphics');
+const native = { unmaskedGpu: true, contextLost: false, glError: 0, gpu: 'ANGLE Apple M5 Max' };
+assert(validNativeGraphics(native));
+for (const gpu of ['', '  ', null, undefined, 'SwiftShader', 'llvmpipe', 'software renderer']) {
+  assert(!validNativeGraphics({ ...native, gpu }));
+}
+for (const overrides of [{ unmaskedGpu: false }, { contextLost: true }, { glError: 1282 }]) {
+  assert(!validNativeGraphics({ ...native, ...overrides }));
+}
+
+// Exercise actual authored geometry/matrices and the maintained receipt/camera
+// implementation. No browser, render call, scene surgery, or guessed lamp seat.
+{
+  const scene = new Scene(), world = new Group(), actor = new Group(), group = new Group();
+  const camera = new PerspectiveCamera(50, 1.6, .5, 4000);
+  camera.position.set(3, 7, 9); camera.lookAt(0, 1, 0); camera.updateMatrixWorld();
+  const originalCamera = [camera.position.toArray(), camera.quaternion.toArray(), camera.fov];
+  const spot = new SpotLight(0xffe2ad, 80), spot2 = new SpotLight(0xffe2ad, 80), point = new PointLight(0xffc889, 24);
+  spot.position.set(1, 1, 2); spot.target.position.set(1, 1, 3);
+  spot2.position.set(-1, 1, 2); spot2.target.position.set(-1, 1, 3);
+  group.add(spot, spot2, point, spot.target, spot2.target); scene.add(world, actor, group);
+  world.position.set(30, 1, -20); world.rotation.y = .3;
+  const lampMaterial = new MeshStandardMaterial({ emissive: 0xffffff, emissiveIntensity: 3 });
+  lampMaterial.userData.nightEmissionMask = true;
+  const lampGeometry = new BoxGeometry(.3, .06, .2).translate(.98, 3.895, 0);
+  lampGeometry.setAttribute('nightEmissionMask', new Float32BufferAttribute(new Array(lampGeometry.attributes.position.count).fill(1), 1));
+  lampGeometry.setAttribute('nightFixtureActive', new Float32BufferAttribute([0, 1], 1));
+  const lamp = new InstancedMesh(lampGeometry, lampMaterial, 2); lamp.name = 'destructible-lamp';
+  const instance = new Matrix4().makeRotationY(.5).setPosition(10, 2, 15);
+  lamp.setMatrixAt(1, instance); world.add(lamp);
+  const windowMaterial = new MeshStandardMaterial({ emissive: 0xffbd72, emissiveIntensity: .225 });
+  installNightEmissionMask(windowMaterial);
+  windowMaterial.userData.nightLightKind = 'window';
+  const windowGeometry = new BoxGeometry(1, 2, .03), pane = new Mesh(windowGeometry, windowMaterial);
+  markWorldWindowPane(windowGeometry, 'curtain', [0, 0, 1]);
+  pane.position.set(0, 2, 0); world.add(pane);
+  actor.userData.nightLightCoverage = { headlights: 2, shtora: 0 };
+  const runtime = { group, lights: [spot, spot2, point], emitterCount: 4 };
+  const probe = { epochs: 0, beginStateEpoch() { this.epochs++; } };
+  const window = { __equipmentDamageProbe: probe, __DEBUG: { scene, camera, world: { group: world },
+    inspectNightWindow: () => inspectNightWindow(world, camera.position),
+    inspectNightWorldFixture: kind => inspectNightWorldFixture(world, camera.position, kind),
+    game: { player: { visual: { root: actor } } }, nightLighting: { current: runtime } } };
+  load('installNightLightProbe', { window })();
+  try {
+    const nodes = scene.children.length;
+    const receipt = probe.readNightLighting();
+    assert.equal(receipt.ownerAvailable, true); assert.equal(receipt.attached, true);
+    assert.equal(receipt.uuid, group.uuid); assert.equal(receipt.emitterCount, 4);
+    assert.deepEqual(receipt.playerCoverage, actor.userData.nightLightCoverage);
+    assert.equal(receipt.materials.length, 2);
+    assert(receipt.materials.some(material => material.uuid === windowMaterial.uuid && material.kind === 'window'));
+    const front = probe.stageNightLightCloseup('headlight');
+    assert.deepEqual(front.point, [1, 1, 2]); assert.deepEqual(front.direction, [0, 0, 1]);
+    assert.equal(front.ownerUuid, spot.uuid);
+    const fixture = probe.stageNightLightCloseup('world');
+    assert.equal(fixture.kind, 'streetlamp'); assert.equal(fixture.slot, 1,
+      'a destroyed instance must never be chosen for the fixture screenshot');
+    lamp.updateWorldMatrix(true, false);
+    const expected = camera.position.clone().set(.98, 3.895, 0).applyMatrix4(instance).applyMatrix4(lamp.matrixWorld);
+    assert(expected.distanceTo(camera.position.clone().fromArray(fixture.sourcePoint)) < 1e-6,
+      'projected source follows whole lens center and actual instance/world transforms');
+    assert.equal(fixture.lineOfSight, 'authored-emissive-face');
+    assert(Number.isSafeInteger(fixture.faceIndex));
+    assert(camera.position.distanceTo(camera.position.clone().fromArray(fixture.point)) >= 6.75,
+      'staging preserves the externally ray-checked camera, not a guessed direction behind a building');
+    probe.restoreNightLightCamera();
+    assert.deepEqual([camera.position.toArray(), camera.quaternion.toArray(), camera.fov], originalCamera);
+    assert.equal(scene.children.length, nodes, 'readbacks and closeups add no fake lighting or geometry');
+    lamp.removeFromParent();
+    const paneFixture = probe.stageNightLightCloseup('world');
+    assert.equal(paneFixture.kind, 'window', 'occupied facade is an authored fallback');
+    const panePool = probe.readNightLighting();
+    assert(validOccupiedWindowFixture(paneFixture, panePool), 'real inspected pane has the exact reviewed masked emission');
+    for (const mutate of [
+      (fixture, material) => { material.intensity = 0; },
+      (fixture, material) => { material.intensity = .9; },
+      (fixture, material) => { material.intensity = .55; },
+      (fixture, material) => { material.intensity = .225 + 2e-6; },
+      (fixture, material) => { material.intensity = NaN; },
+      (fixture, material) => { material.masked = false; },
+      (fixture, material) => { material.kind = 'fixture'; },
+      fixture => { fixture.kind = 'streetlamp'; },
+      fixture => { fixture.lineOfSight = null; },
+      fixture => { fixture.faceIndex = -1; },
+      fixture => { fixture.ownerUuid = null; },
+      fixture => { fixture.materialUuid = 'missing-material'; },
+    ]) {
+      const fixture = structuredClone(paneFixture), pool = structuredClone(panePool);
+      const selected = pool.materials.find(material => material.uuid === fixture.materialUuid);
+      pool.materials.push({ ...selected, uuid: 'unrelated-correctly-lit-window' });
+      mutate(fixture, selected);
+      assert.equal(validOccupiedWindowFixture(fixture, pool), false, 'wrong selected pane cannot pass via another glowing window');
+    }
+    const roundedPool = structuredClone(panePool);
+    roundedPool.materials.find(material => material.uuid === paneFixture.materialUuid).intensity += 5e-7;
+    assert(validOccupiedWindowFixture(paneFixture, roundedPool), 'serialization-scale numeric tolerance only');
+    const closeupsReport = { lightCloseups: [] };
+    await load('nightLightCloseups', { assert, window, report: closeupsReport, save() {},
+      evaluateWithin: async (callback, argument) => callback(argument), settle: async () => {},
+      readVisualState: () => ({ weather: { timeOfDay: 'night' }, nightLighting: probe.readNightLighting() }),
+      validStreetLampFixture, validOccupiedWindowFixture, screenshot: async () => {},
+    })('cpu-fixture');
+    assert.equal(closeupsReport.lightCloseups.length, 2, 'real maintained closeup route reaches the selected window assertion');
+    assert(closeupsReport.lightCloseups.every(row => row.structuralPassed));
+    probe.restoreNightLightCamera(); pane.removeFromParent();
+    assert.throws(() => probe.stageNightLightCloseup('world'), /No authored/);
+    probe.restoreNightLightCamera(); spot.intensity = spot2.intensity = 0;
+    assert.throws(() => probe.stageNightLightCloseup('headlight'), /No active authored/);
+    probe.restoreNightLightCamera();
+  } finally {
+    lamp.dispose(); lampGeometry.dispose(); lampMaterial.dispose(); windowGeometry.dispose(); windowMaterial.dispose();
+    spot.dispose(); spot2.dispose(); point.dispose();
+  }
+}
+
+{
+  const calls = [], window = { __DEBUG: {
+    battleAtmosphere: { async prepare(seed, map) { calls.push(['atmosphere', seed, map]); } },
+    nightLighting: { async prepare() { calls.push(['lamps']); } },
+  }, __equipmentDamageProbe: { beginStateEpoch() { calls.push(['epoch']); } } };
+  const prepare = load('atmosphereReceipt', { window, evaluateWithin: async (callback, argument) => callback(argument),
+    settle: async count => { calls.push(['render', count]); }, readVisualState: () => good.night });
+  assert.equal(await prepare(3, 'winter'), good.night);
+  assert.deepEqual(calls, [['atmosphere', 3, 'winter'], ['lamps'], ['epoch'], ['render', 30]],
+    'explicit atmosphere changes prepare actual lamps before observed frames and receipt capture');
+}
+
+const checkEquipmentGeometry = load('checkEquipmentGeometry', { assert });
+{
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+  geometry.setAttribute('normal', new Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+  geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+  const material = new MeshBasicMaterial(), mesh = new Mesh(geometry, material), root = new Group();
+  mesh.name = 'turretDark'; mesh.userData.combatHitboxRole = 'nonArmor'; root.add(mesh);
+  const read = load('equipmentGeometryReceipt', { crypto: webcrypto,
+    window: { __DEBUG: { game: { player: { visual: { root } } } } } });
+  try {
+    const before = await read();
+    geometry.attributes.position.array[0] = .03; geometry.attributes.normal.array[0] = .02;
+    const after = await read();
+    geometry.attributes.position.array[0] = 0; geometry.attributes.normal.array[0] = 0;
+    const reset = await read();
+    checkEquipmentGeometry(before, after, reset);
+    assert.throws(() => checkEquipmentGeometry(before, before, reset), /actual positions/);
+    assert.throws(() => checkEquipmentGeometry(before, after, after), /exact positions/);
+    const badBounds = structuredClone(reset); badBounds.sphere[1] += .04;
+    assert.throws(() => checkEquipmentGeometry(before, after, badBounds), /exact positions/);
+    const foreign = { ...reset, geometryUuid: 'foreign-geometry' };
+    assert.throws(() => checkEquipmentGeometry(before, after, foreign), /ownership/);
+    mesh.userData.combatHitboxRole = 'armor'; await assert.rejects(read(), /nonArmor/);
+    mesh.userData.combatHitboxRole = 'nonArmor'; geometry.setIndex([0, 1, 2]);
+    await assert.rejects(read(), /nonArmor/);
+  } finally { geometry.dispose(); material.dispose(); }
+}
+
+async function exerciseEquipment(fault = null) {
+  const report = {}, events = [], appliedEvents = [];
+  const failure = new Error('reset failed');
+  let resets = 0;
+  const vector = { clone() { return this; }, set() { return this; }, copy() { return this; }, add() { return this; } };
+  const visual = {
+    root: { getObjectByName(name) { assert.equal(name, 'rig_turret'); return { localToWorld() {} }; } },
+    applyEquipmentDamage(event) { appliedEvents.push(event); return fault === 'duplicate' || appliedEvents.length === 1; },
+    resetDestroyed() { if (fault === 'reset') throw failure; resets++; },
+  };
+  const debug = {
+    game: { player: { visual } },
+    battleAtmosphere: { async prepare(...args) { assert.deepEqual(args, [1, 'verdant']); },
+      current: { weather: { condition: 'clear', timeOfDay: 'day' } } },
+    nightLighting: { async prepare() {} },
+    scene: { getObjectByName() { return null; } },
+    camera: { position: vector, lookAt() {}, updateProjectionMatrix() {} },
+  };
+  const fingerprint = () => ({ meshUuid: 'mesh', geometryUuid: 'geometry', role: 'nonArmor', box: null, sphere: null,
+    position: { count: 36, sha256: appliedEvents.length && !resets ? 'dent' : 'rest' },
+    normal: { count: 36, sha256: appliedEvents.length && !resets ? 'fold' : 'rest' } });
+  const run = load('equipmentPictures', {
+    assert, report, save() {}, checkEquipmentGeometry,
+    window: { __DEBUG: debug, __equipmentDamageProbe: { beginStateEpoch() {} } },
+    stage: async (...args) => { assert.deepEqual(args, ['verdant', 'leo2a6']); },
+    evaluateWithin: async callback => callback(), readVisualState: () => good.day,
+    equipmentGeometryReceipt: fingerprint,
+    settle: async count => { assert.equal(count, 5); },
+    screenshot: async (label, snapshot) => {
+      assert.equal(snapshot, good.day); events.push({ label, applications: appliedEvents.length, resets });
+    },
+  });
+  if (fault === 'reset') await assert.rejects(run(), error => error === failure);
+  else if (fault === 'duplicate') await assert.rejects(run(), assert.AssertionError);
+  else assert.deepEqual(await run(), { applied: true, duplicate: false });
+  assert.equal(appliedEvents.length, 2);
+  assert.strictEqual(appliedEvents[0], appliedEvents[1]);
+  assert.deepEqual(appliedEvents[0], { impactFrame: 'turret', impactLocalPos: [.26, .405, -2.463],
+    impactLocalNormal: [0, 0, -1], caliberMm: 120, kind: 'nonpen' });
+  const expected = [
+    { label: 'equipment-before', applications: 0, resets: 0 },
+    { label: 'equipment-after', applications: 2, resets: 0 },
+    { label: 'equipment-reset', applications: 2, resets: 1 },
+  ];
+  assert.deepEqual(events, expected.slice(0, fault === 'duplicate' ? 1 : fault === 'reset' ? 2 : 3));
+  assert.deepEqual(report.equipment, { applied: true, duplicate: fault === 'duplicate' });
+}
+await exerciseEquipment(); await exerciseEquipment('duplicate'); await exerciseEquipment('reset');
+
+for (const fault of [null, 'attached', 'weather', 'lighting', 'lamps', 'lamp-glow']) {
+  const baseline = { ...structuredClone(good.day), phase: 'garage', weather: null };
+  const restored = structuredClone(baseline);
+  if (fault === 'attached') restored.precipitationAttached = true;
+  if (fault === 'weather') restored.weather = good.night.weather;
+  if (fault === 'lighting') restored.skies = [.035];
+  if (fault === 'lamps') restored.nightLighting.attached = true;
+  if (fault === 'lamp-glow') restored.nightLighting.lights[0].intensity = 80;
+  const debug = { shotMode: true, async enterGarage() {} };
+  let entries = 0;
+  debug.enterGarage = async () => { entries++; };
+  const enterAuthoredGarage = load('enterAuthoredGarage', { assert, assertRenderedState, validNightLightState,
+    evaluateWithin: async callback => callback(), readVisualState: () => restored,
+    settle: async count => assert.equal(count, 2),
+    window: { __DEBUG: debug, __equipmentDamageProbe: { beginStateEpoch() {} } },
+  });
+  const run = load('garageReceipt', { assert, lightingReceipt, enterAuthoredGarage });
+  if (fault) await assert.rejects(run(baseline), assert.AssertionError);
+  else assert.deepEqual(await run(baseline), restored);
+  assert.equal(debug.shotMode, false);
+  assert.equal(entries, 1, 'baseline and return use the real Garage lifecycle, not preset writes');
+}
+
+assert(source.indexOf('report[`${tier.label}-coldGarage`]')
+  < source.indexOf('const garageBaseline = await enterAuthoredGarage()'),
+  'preserve the raw cold boot receipt before establishing the authored Garage baseline');
+
+// The optional cold mode observes the first ordinary render, not a later
+// weather toggle. Execute its real hooks with independent lifecycle fixtures.
+const coldExpected = selectBattleWeather(load('seedFor', { selectBattleWeather })('temperate', 'night'), 'temperate');
+assert.equal(coldExpected.timeOfDay, 'night');
+const assertColdNightEntry = load('assertColdNightEntry', { assert, assertRenderedState, validNightLightState });
+async function coldEntryFixture(fault = null) {
+  const pool = structuredClone(good.night.nightLighting), calls = [], token = {};
+  let renders = 0, observedPool = structuredClone(good.day.nightLighting);
+  const window = { innerWidth: 1440, innerHeight: 900, __VISUAL_LOAD_TIMINGS: [] };
+  const game = { phase: 'garage', battleCount: 0 };
+  const post = { render(...args) {
+    calls.push({ name: 'render', receiver: this, args });
+    if (fault === 'render-throw') throw new Error('Real render failed');
+    renders++; return token;
+  } };
+  const atmosphere = { current: null, async prepare(seed, mapId) {
+    calls.push({ name: 'atmosphere', receiver: this, args: [seed, mapId] });
+    this.current = { weather: fault === 'late-night' ? selectBattleWeather(1, 'temperate') : selectBattleWeather(seed, 'temperate') };
+    return token;
+  } };
+  const nightLighting = { current: null, async prepare(...args) {
+    calls.push({ name: 'nightLighting', receiver: this, args });
+    this.current = { emitterCount: 3 }; observedPool = pool; return token;
+  } };
+  const d = window.__DEBUG = { game, post, battleAtmosphere: atmosphere, nightLighting,
+    renderer: { getContext: () => ({ getError: () => fault === 'gl-error' ? 1282 : 0 }) },
+    async beginSoloBattle(options) {
+      assert.deepEqual(options, { mapId: 'urban', specId: 'm1a3', randomRoster: false });
+      assert.equal(game.battleCount, coldExpected.seed - 1, 'Select night before the actual battle increment');
+      assert.equal(atmosphere.current, null, 'No eager manual atmosphere preparation');
+      assert.equal(nightLighting.current, null, 'No eager manual pool preparation');
+      game.battleCount++; game.phase = 'battle';
+      assert.strictEqual(await atmosphere.prepare(game.battleCount, options.mapId), token);
+      assert.strictEqual(await nightLighting.prepare(), token);
+      if (fault === 'duplicate-prepare') await nightLighting.prepare();
+      if (fault !== 'no-render') assert.strictEqual(post.render(.016, 'ordinary'), token);
+      if (fault === 'late-night') atmosphere.current = { weather: coldExpected };
+      window.__BATTLE_REVEAL = { primed: true, loaderVisible: true, garageHidden: true };
+      window.__BATTLE_COUNTDOWN_WARM = { done: true, doneBeforeRollout: true,
+        stages: { camo: 0, atmosphere: 0, nightLighting: 0, allyVisuals: 0, forwardPrograms: 0, postPasses: 0, openingFrame: 0 } };
+      window.__BATTLE_LOAD = { stages: { open: 0 } };
+      window.__VISUAL_LOAD_TIMINGS.push({ specId: 'm1a3', textureUploadMs: 1, compileMs: 0 });
+    } };
+  const probe = window.__equipmentDamageProbe = {
+    readNightLighting: () => structuredClone(observedPool),
+    renderReceipt: () => ({ stateEpoch: 0, completedEpoch: renders ? 0 : -1, renderCount: renders }),
+  };
+  const bindings = { window, document: { querySelector(selector) {
+    assert.equal(selector, '.cot-bl');
+    return { classList: { contains: key => key === 'on' },
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 1440, bottom: 900 }) };
+  } }, getComputedStyle: () => ({ display: 'flex', opacity: fault === 'transparent-cover' ? '0.5' : '1' }) };
+  const originals = [post.render, atmosphere.prepare, nightLighting.prepare];
+  load('installColdNightEntryObserver', bindings)();
+  assert.throws(() => load('installColdNightEntryObserver', bindings)(), /already installed/);
+  const begin = load('beginColdNightBattle', { window });
+  if (fault === 'render-throw') {
+    await assert.rejects(begin({ mapId: 'urban', specId: 'm1a3', seed: coldExpected.seed }), /Real render failed/);
+    assert.equal(probe.coldEntry.receipt.firstBattleRender, null, 'Thrown render cannot certify first-frame readiness');
+  } else {
+    await begin({ mapId: 'urban', specId: 'm1a3', seed: coldExpected.seed });
+    if (fault) assert.throws(() => assertColdNightEntry(probe.coldEntry.receipt, coldExpected));
+    else assertColdNightEntry(probe.coldEntry.receipt, coldExpected);
+  }
+  assert(calls.filter(row => row.name === 'render').every(row => row.receiver === post
+    && row.args[0] === .016 && row.args[1] === 'ordinary'));
+  assert(calls.filter(row => row.name === 'atmosphere').every(row => row.receiver === atmosphere));
+  assert(calls.filter(row => row.name === 'nightLighting').every(row => row.receiver === nightLighting));
+  assert.deepEqual(probe.coldEntry.dispose(), { restored: true });
+  assert.deepEqual(probe.coldEntry.dispose(), { restored: true }, 'Owned cleanup is idempotent');
+  assert.deepEqual([post.render, atmosphere.prepare, nightLighting.prepare], originals);
+  return { receipt: probe.coldEntry.receipt, probe, post };
+}
+const cold = await coldEntryFixture();
+for (const fault of ['late-night', 'no-render', 'render-throw', 'duplicate-prepare', 'transparent-cover', 'gl-error']) {
+  await coldEntryFixture(fault);
+}
+for (const mutate of [
+  row => { row.firstBattleRender.nightLighting.attached = false; },
+  row => { row.firstBattleRender.nightLighting.lights[0].castShadow = true; },
+  row => { row.firstBattleRender.nightLighting.materials[0].intensity = 0; },
+  row => { row.firstBattleRender.loader.coversViewport = false; },
+  row => { row.reveal.loaderVisible = false; },
+  row => { delete row.deployment.stages.forwardPrograms; },
+  row => { row.deployment.stages = { camo: 0, atmosphere: 0, allyVisuals: 0, nightLighting: 0,
+    forwardPrograms: 0, postPasses: 0, openingFrame: 0 }; },
+  row => { row.playerStaging[0].compileMs = 10; },
+  row => { delete row.loading.stages.open; },
+]) {
+  const invalid = structuredClone(cold.receipt); mutate(invalid);
+  assert.throws(() => assertColdNightEntry(invalid, coldExpected), assert.AssertionError);
+}
+cold.post.render = () => {};
+assert.throws(() => cold.probe.coldEntry.dispose(), /ownership changed/);
+const assertColdNightFixture = load('assertColdNightFixture', { assert, validNightLightState, validStreetLampFixture });
+const coldLamp = { ...structuredClone(good.night), playerSpecId: 'm1a3' };
+const vehicle = new Group(), inspectionCamera = new PerspectiveCamera();
+inspectionCamera.position.set(0, 1, 5);
+for (const kind of ['marker', 'headlight']) {
+  const lens = markVehicleNightLens(new BoxGeometry(.2, .2, .04), kind);
+  if (kind === 'headlight') lens.translate(2, 0, 0);
+  prepareVehicleNightLensParts([lens]);
+  const mesh = new Mesh(lens, new MeshStandardMaterial());
+  registerVehicleNightLensMesh(mesh, [lens]); vehicle.add(mesh);
+}
+vehicle.rotation.y = .1; vehicle.position.set(1, .5, 0);
+const aperture = inspectNightHeadlight(vehicle, inspectionCamera.position);
+assert.equal(aperture.ownerUuid, vehicle.children[1].uuid, 'Closer parking lamp cannot substitute for a driving aperture');
+assert(!Object.hasOwn(aperture, 'mask') && !Object.hasOwn(aperture, 'sourcePoint'),
+  'Actual inspector schema has neither world-fixture field: retain this r1 regression fixture');
+coldLamp.nightLighting.materials[0].uuid = aperture.materialUuid;
+const readFace = load('readColdHeadlightFace', { window: { __DEBUG: {
+  camera: inspectionCamera, game: { player: { visual: { root: vehicle } } } } } });
+const face = readFace(aperture);
+assertColdNightFixture('headlight-aperture', aperture, coldLamp, face);
+for (const change of [{ point: [2, 2, 3] }, { faceIndex: -1 }, { materialUuid: 'wrong' }, { lineOfSight: 'occluded' }]) {
+  assert.throws(() => assertColdNightFixture('headlight-aperture', { ...aperture, ...change }, coldLamp, face));
+}
+vehicle.children[1].geometry.getAttribute('nightEmissionMask').array.fill(0);
+assert.throws(() => assertColdNightFixture('headlight-aperture', aperture, coldLamp, readFace(aperture)),
+  'An actual dark uploaded face cannot pass through trusted inspector metadata');
+assert.throws(() => readFace({ ...aperture, ownerUuid: 'missing' }), /Missing actual selected/);
+assert.throws(() => readFace({ ...aperture, faceIndex: 9999 }), /Missing actual selected/);
+for (const mesh of vehicle.children) { mesh.geometry.dispose(); mesh.material.dispose(); }
+assert.doesNotMatch(tree.statements.find(node => ts.isFunctionDeclaration(node)
+  && node.name?.text === 'beginColdNightBattle').getText(tree), /\.prepare\(/,
+  'The probe cannot implement a late or duplicate manual night preparation');
+
+assert.doesNotMatch(source, /beginPrecipitationControl|setPrecipitationBudget|installFrameAccounting|p95Ms|sampleMs/);
+assert.match(source, /No performance measurement or physical-device certification/);
+assert.match(source, /child\.kill\('SIGKILL'\)/);
+assert.match(source, /for \(const socket of previewSockets\) socket\.destroy\(\)/);
+console.log('daynight-atmosphere-probe.selftest: completed original renders/deadlines/cleanup, capture epochs, exact scenarios, cloud opacity/fog density, geometry reset and Garage lighting');

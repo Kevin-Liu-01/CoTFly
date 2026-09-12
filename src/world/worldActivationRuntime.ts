@@ -1,0 +1,518 @@
+import type * as THREE from 'three';
+import { minimapAssetUrl } from '../ui/minimapAssetUrl.ts';
+import {
+  createWorldBuildCoordinator,
+  type WorldBuildCoordinator,
+  type WorldBuildCoordinatorDependencies,
+  type WorldPrefetchStats,
+} from './worldBuildCoordinator.ts';
+import {
+  createMinimapAssetRuntime,
+  type MinimapLoadTrace,
+} from '../ui/minimapAssetRuntime.ts';
+
+type MaybePromise<T> = T | PromiseLike<T>;
+type ProgressListener = (fraction: number, label: string) => void;
+
+export interface WorldRaycastHit {
+  point: THREE.Vector3;
+  normal: THREE.Vector3;
+  dist: number;
+  kind: string;
+}
+
+export interface ActiveWorld<SkyConfig extends object = object> {
+  mapId: string;
+  group: THREE.Object3D;
+  config: { sky?: SkyConfig };
+  raycast(
+    origin: THREE.Vector3,
+    direction: THREE.Vector3,
+    maxDistance: number,
+  ): WorldRaycastHit | null;
+}
+
+export type WorldActivationStage = 'build' | 'present' | 'compile' | 'shadowWarm' | 'clouds' | 'activate';
+
+export interface WorldActivationStageInterval {
+  stage: WorldActivationStage;
+  /** Absolute performance.now() timebase, matching PerformanceEntry.startTime. */
+  startTime: number;
+  /** Absent while this stage is still pending. */
+  endTime?: number;
+}
+
+export interface WorldActivationTrace {
+  id: string;
+  cached: boolean;
+  status: 'pending' | 'complete' | 'failed';
+  startedAt: number;
+  endedAt?: number;
+  stageIntervals: WorldActivationStageInterval[];
+  error?: { name: string; message: string };
+  build?: number;
+  buildDetail?: Record<string, number | object>;
+  present?: number;
+  compile?: number;
+  shadowWarm?: number;
+  clouds?: number;
+  activate?: number;
+  totalMs?: number;
+}
+
+export interface WorldActivationOptions {
+  precompile?: boolean;
+  compilePrograms?: boolean;
+  services?: boolean;
+  /** Covered solo/network entry prepares its selected atmosphere before warm. */
+  atmosphere?: 'covered-battle';
+}
+
+type WorldSceneActivationOptions = Pick<WorldActivationOptions, 'services' | 'atmosphere'>;
+
+type CoordinatorDependencies<World extends ActiveWorld> = Omit<
+  WorldBuildCoordinatorDependencies<World>,
+  'getCurrentWorld'
+>;
+
+export interface WorldActivationRuntimeOptions<
+  World extends ActiveWorld<SkyConfig>,
+  Collider,
+  SkyConfig extends object = object,
+> {
+  initialMapId: string;
+  coordinator?: WorldBuildCoordinator<World>;
+  coordinatorDependencies?: CoordinatorDependencies<World>;
+  swapSceneWorld(previous: THREE.Object3D | null, next: THREE.Object3D): void;
+  setSceneWorldActive(root: THREE.Object3D, active: boolean): void;
+  ensureCloudTextures(): void;
+  ensureCloudTexturesChunked?(yieldFrame: () => Promise<void>): Promise<void>;
+  awaitInitialCloudWarm(): Promise<void>;
+  applySkyPreset(skyConfig: SkyConfig): void;
+  applySkyPresentation(skyConfig: SkyConfig): void;
+  setSun(skyConfig: SkyConfig): void;
+  getFogDensity(): number;
+  onFogDensityChanged(density: number): void;
+  canCreateCollider(): boolean;
+  createCollider(world: World): Collider;
+  placeGarage(): void;
+  isMinimapReady(): boolean;
+  buildMinimap(world: World, textured: boolean): void;
+  loadMinimapAsset(world: World, url: string): MaybePromise<boolean>;
+  compilePrograms(root: THREE.Object3D): void;
+  linkerBreathingSlices(maxSlices: number): Iterable<void>;
+  updateShadowFrustums(): void;
+  warmShadowFrame(): void;
+  nextFrame(): Promise<void>;
+  baseUrl?: string;
+  minimapAssetVersion?: string;
+  now?: () => number;
+  publishActivationTrace?(trace: WorldActivationTrace): void;
+  publishMinimapTrace?(trace: MinimapLoadTrace): void;
+}
+
+export interface WorldActivationRuntime<
+  World extends ActiveWorld,
+  Collider,
+> {
+  readonly current: World | null;
+  readonly collider: Collider | null;
+  readonly pendingMapId: string;
+  readonly dormant: boolean;
+  readonly servicesMapId: string | null;
+  readonly cache: Map<string, World>;
+  readonly resourceLimits: WorldBuildCoordinator<World>['resourceLimits'];
+  readonly prefetchStats: WorldPrefetchStats;
+  readonly lastRelease: WorldBuildCoordinator<World>['lastRelease'];
+  loadModule(): ReturnType<WorldBuildCoordinator<World>['loadModule']>;
+  enforceCacheBudget(): void;
+  prefetch(mapId: string, options?: { intent?: boolean }): Promise<World | null> | null;
+  cancelBackgroundExcept(mapId?: string | null): void;
+  setPendingMapId(mapId: string): void;
+  raycast(
+    origin: THREE.Vector3,
+    direction: THREE.Vector3,
+    maxDistance: number,
+  ): WorldRaycastHit | null;
+  buildMinimap(world: World, textured?: boolean): void;
+  queueMinimap(world?: World | null): Promise<boolean> | null;
+  prepareServices(world?: World | null): void;
+  prepareBattleServices(world?: World | null): void;
+  activate(world: World, options?: WorldSceneActivationOptions): World;
+  switchMap(mapId: string): World | Promise<World>;
+  ensure(
+    mapId?: string | null,
+    onProgress?: ProgressListener | null,
+    options?: WorldActivationOptions | null,
+  ): Promise<World>;
+  setDormant(dormant: boolean): void;
+  invalidateSkyPresentation(): void;
+  /** A selected/reset battle preset has completed its synchronous IBL bake. */
+  markEnvironmentPrepared(world: World | null): void;
+}
+
+/**
+ * Own the browser presentation lifetime of one active battlefield.
+ *
+ * The construction coordinator owns deterministic builds and cache eviction;
+ * this deeper owner adds the one active-world decision, atmosphere, services,
+ * minimap upgrade, covered GPU warm, dormancy, and trace. Callers do not own
+ * partial map state or reproduce activation order.
+ */
+export function createWorldActivationRuntime<
+  World extends ActiveWorld<SkyConfig>,
+  Collider,
+  SkyConfig extends object = object,
+>(options: WorldActivationRuntimeOptions<World, Collider, SkyConfig>): WorldActivationRuntime<World, Collider> {
+  if (!options.initialMapId) throw new TypeError('world activation requires an initial map id');
+  const now = options.now ?? (() => performance.now());
+  let current: World | null = null;
+  let collider: Collider | null = null;
+  let pendingMapId = options.initialMapId;
+  let dormant = false;
+  let servicesMapId: string | null = null;
+  let skyMapId = options.initialMapId;
+  let skyPresentationDirty = false;
+  let skyEnvironmentDeferred = false;
+
+  const coordinatorDependencies = options.coordinatorDependencies;
+  let coordinator = options.coordinator;
+  if (!coordinator) {
+    if (!coordinatorDependencies) {
+      throw new TypeError('world activation requires coordinator dependencies');
+    }
+    coordinator = createWorldBuildCoordinator<World>({
+      ...coordinatorDependencies,
+      getCurrentWorld: () => current,
+    });
+  }
+  const cache = coordinator.cache;
+  const baseUrl = options.baseUrl || '/';
+  const assetUrl = (mapId: string): string => (
+    minimapAssetUrl(mapId, baseUrl, options.minimapAssetVersion)
+  );
+  const minimapAssets = createMinimapAssetRuntime<World>({
+    isReady: options.isMinimapReady,
+    getActiveWorld: () => current,
+    isPrepared: (mapId) => servicesMapId === mapId,
+    loadAsset: options.loadMinimapAsset,
+    buildFallback: (world) => options.buildMinimap(world, false),
+    assetUrl,
+    now,
+    publishTrace: options.publishMinimapTrace,
+  });
+
+  const queueMinimap = (world: World | null = current): Promise<boolean> | null => (
+    minimapAssets.queue(world)
+  );
+
+  const prepareServices = (world: World | null = current): void => {
+    if (!world || current !== world) return;
+    collider = options.canCreateCollider() ? options.createCollider(world) : null;
+    options.placeGarage();
+    if (servicesMapId !== world.mapId) servicesMapId = world.mapId;
+    queueMinimap(world);
+  };
+
+  const prepareBattleServices = (world: World | null = current): void => {
+    if (!world || current !== world) return;
+    collider = options.createCollider(world);
+    options.placeGarage();
+    if (servicesMapId !== world.mapId) servicesMapId = world.mapId;
+    queueMinimap(world);
+  };
+
+  const restoreAtmosphere = (world: World, atmosphere?: 'covered-battle'): void => {
+    const skyConfig = world.config.sky ?? {} as SkyConfig;
+    if (atmosphere === 'covered-battle') {
+      // This authored daytime presentation is only intermediate. The covered
+      // deployment/authority owner bakes the selected day/night IBL once.
+      if (skyMapId !== world.mapId || skyPresentationDirty) {
+        options.applySkyPresentation(skyConfig);
+        options.onFogDensityChanged(options.getFogDensity());
+      }
+      skyEnvironmentDeferred = true;
+    } else if (skyMapId !== world.mapId || skyEnvironmentDeferred) {
+      options.applySkyPreset(skyConfig);
+      options.onFogDensityChanged(options.getFogDensity());
+      skyEnvironmentDeferred = false;
+    } else if (skyPresentationDirty) {
+      // Garage variants only retarget the visible sky; the last battlefield's
+      // PMREM remains resident. Restore that sky/fog without rebaking its IBL
+      // when the same cached battlefield is entered again.
+      options.applySkyPresentation(skyConfig);
+      options.onFogDensityChanged(options.getFogDensity());
+    }
+    skyMapId = world.mapId;
+    skyPresentationDirty = false;
+    options.setSun(skyConfig);
+  };
+
+  const activate = (world: World, { services = true, atmosphere }: WorldSceneActivationOptions = {}): World => {
+    options.swapSceneWorld(current?.group ?? null, world.group);
+    current = world;
+    dormant = false;
+    options.ensureCloudTextures();
+    pendingMapId = world.mapId;
+    restoreAtmosphere(world, atmosphere);
+    if (services) prepareServices(world);
+    else {
+      collider = null;
+      if (servicesMapId !== world.mapId) servicesMapId = null;
+    }
+    coordinator.enforceCacheBudget();
+    return world;
+  };
+
+  const timingStages: readonly WorldActivationStage[] = [
+    'build', 'present', 'compile', 'shadowWarm', 'clouds', 'activate',
+  ];
+  type BuildDiagnostics = {
+    vegetation?: object | null;
+    terrain?: object | null;
+    props?: object | null;
+  };
+
+  const createStageMarker = (trace: WorldActivationTrace): {
+    mark(stage: WorldActivationStage): void;
+    complete(): void;
+    fail(error: NonNullable<WorldActivationTrace['error']>): void;
+  } => {
+    const publish = (): void => {
+      try {
+        options.publishActivationTrace?.({
+          ...trace,
+          stageIntervals: trace.stageIntervals.map((interval) => ({ ...interval })),
+          ...(trace.buildDetail ? { buildDetail: { ...trace.buildDetail } } : {}),
+          ...(trace.error ? { error: { ...trace.error } } : {}),
+        });
+      } catch { /* telemetry must not change activation success or its original failure */ }
+    };
+    const closeStage = (sample: number): void => {
+      const interval = trace.stageIntervals.at(-1);
+      if (!interval || interval.endTime !== undefined) return;
+      interval.endTime = sample;
+      trace[interval.stage] = Math.round(sample - interval.startTime);
+    };
+    const finish = (status: 'complete' | 'failed'): void => {
+      const sample = now();
+      closeStage(sample);
+      trace.status = status;
+      trace.endedAt = sample;
+      trace.totalMs = Math.round(sample - trace.startedAt);
+      publish();
+    };
+    publish();
+    return {
+      mark(stage): void {
+        const sample = now();
+        closeStage(sample);
+        const nextStage = timingStages[timingStages.indexOf(stage) + 1];
+        if (nextStage) trace.stageIntervals.push({ stage: nextStage, startTime: sample });
+        publish();
+      },
+      complete(): void {
+        finish('complete');
+      },
+      fail(error): void {
+        trace.error = error;
+        finish('failed');
+      },
+    };
+  };
+
+  const copyBuildDiagnostics = (trace: WorldActivationTrace, world: World): void => {
+    const diagnostics = (world as World & { _buildDetail?: BuildDiagnostics })._buildDetail;
+    if (!diagnostics || !trace.buildDetail) return;
+    if (diagnostics.vegetation) {
+      trace.buildDetail.vegetationDetail = { ...diagnostics.vegetation };
+    }
+    if (diagnostics.terrain) {
+      trace.buildDetail.terrainDetail = { ...diagnostics.terrain };
+    }
+    if (diagnostics.props) {
+      trace.buildDetail.propsDetail = { ...diagnostics.props };
+    }
+  };
+
+  const resolveWorld = async (
+    id: string,
+    cached: World | null,
+    trace: WorldActivationTrace,
+    onProgress: ProgressListener | null,
+  ): Promise<World> => {
+    if (cached) return cached;
+    const request = coordinator.beginBuild(id, onProgress);
+    try {
+      const built = await request.promise;
+      trace.buildDetail = { ...request.stageTimings };
+      copyBuildDiagnostics(trace, built);
+      return built;
+    } catch (error) {
+      trace.buildDetail = { ...request.stageTimings };
+      throw error;
+    } finally {
+      if (onProgress && request.listeners) request.listeners.delete(onProgress);
+    }
+  };
+
+  const drainLinker = async (maxSlices: number): Promise<void> => {
+    for (const _ of options.linkerBreathingSlices(maxSlices)) await options.nextFrame();
+  };
+
+  const compileWorldPrograms = async (root: THREE.Object3D): Promise<void> => {
+    try { options.compilePrograms(root); } catch { /* real render remains fallback */ }
+    await drainLinker(24);
+  };
+
+  const warmShadowCohort = async (
+    children: THREE.Object3D[],
+    lastVisible: number,
+  ): Promise<void> => {
+    const hidden: THREE.Object3D[] = [];
+    for (let index = lastVisible + 1; index < children.length; index += 1) {
+      const child = children[index];
+      if (!child.visible) continue;
+      child.visible = false;
+      hidden.push(child);
+    }
+    try {
+      options.updateShadowFrustums();
+      options.warmShadowFrame();
+    } catch { /* real render remains fallback */ }
+    for (const child of hidden) child.visible = true;
+    await drainLinker(24);
+    await options.nextFrame();
+  };
+
+  const warmWorldShadows = async (root: THREE.Object3D): Promise<void> => {
+    const children = root.children.slice();
+    const cohorts = Math.min(3, Math.max(1, children.length));
+    for (let cohort = 0; cohort < cohorts; cohort += 1) {
+      const lastVisible = Math.ceil(((cohort + 1) / cohorts) * children.length) - 1;
+      await warmShadowCohort(children, lastVisible);
+    }
+  };
+
+  const warmWorldForActivation = async (
+    world: World,
+    activationOptions: WorldActivationOptions | null,
+    mark: (stage: WorldActivationStage) => void,
+  ): Promise<void> => {
+    const precompile = activationOptions?.precompile !== false;
+    world.group.visible = false;
+    if (precompile) await options.nextFrame();
+    mark('present');
+    world.group.visible = true;
+
+    if (precompile || activationOptions?.compilePrograms === true) {
+      await compileWorldPrograms(world.group);
+    }
+    mark('compile');
+    if (precompile) await options.nextFrame();
+    if (precompile) await warmWorldShadows(world.group);
+    mark('shadowWarm');
+  };
+
+  const ensure = async (
+    mapId: string | null = null,
+    onProgress: ProgressListener | null = null,
+    activationOptions: WorldActivationOptions | null = null,
+  ): Promise<World> => {
+    if (activationOptions?.atmosphere === 'covered-battle'
+      && (activationOptions.precompile !== false || activationOptions.compilePrograms === true)) {
+      throw new TypeError('Covered battle atmosphere must precede combat program warming');
+    }
+    const id = mapId || pendingMapId;
+    coordinator.cancelBackgroundExcept(id);
+    const cached = cache.get(id) ?? null;
+    const startedAt = now();
+    const trace: WorldActivationTrace = {
+      id,
+      cached: !!cached,
+      status: 'pending',
+      startedAt,
+      stageIntervals: [{ stage: 'build', startTime: startedAt }],
+    };
+    const timer = createStageMarker(trace);
+    try {
+      const next = await resolveWorld(id, cached, trace, onProgress);
+      timer.mark('build');
+      await warmWorldForActivation(next, activationOptions, timer.mark);
+
+      await options.awaitInitialCloudWarm();
+      await options.ensureCloudTexturesChunked?.(options.nextFrame);
+      timer.mark('clouds');
+
+      const needsServices = activationOptions?.services !== false
+        && servicesMapId !== next.mapId;
+      if (current !== next || dormant) {
+        activate(next, {
+          services: activationOptions?.services !== false,
+          atmosphere: activationOptions?.atmosphere,
+        });
+      } else {
+        // A cancelled covered entry may leave this same active world with
+        // presentation only. Explicit ordinary/capture ensure restores its IBL.
+        if (!activationOptions?.atmosphere && skyEnvironmentDeferred) restoreAtmosphere(next);
+        if (needsServices) prepareServices(next);
+      }
+      timer.mark('activate');
+      timer.complete();
+      return next;
+    } catch (error) {
+      let detail = { name: 'Error', message: 'Unprintable activation error' };
+      try {
+        detail = error instanceof Error
+          ? { name: error.name, message: error.message }
+          : { name: 'Error', message: String(error) };
+      } catch { /* arbitrary thrown values need not be printable */ }
+      timer.fail(detail);
+      throw error;
+    }
+  };
+
+  return {
+    get current() { return current; },
+    get collider() { return collider; },
+    get pendingMapId() { return pendingMapId; },
+    get dormant() { return dormant; },
+    get servicesMapId() { return servicesMapId; },
+    cache,
+    resourceLimits: coordinator.resourceLimits,
+    prefetchStats: coordinator.stats,
+    get lastRelease() { return coordinator.lastRelease; },
+    loadModule: () => coordinator.loadModule(),
+    enforceCacheBudget: () => coordinator.enforceCacheBudget(),
+    prefetch: (mapId, prefetchOptions) => coordinator.prefetch(mapId, prefetchOptions) as Promise<World | null> | null,
+    cancelBackgroundExcept: (mapId) => coordinator.cancelBackgroundExcept(mapId),
+    setPendingMapId(mapId) {
+      if (mapId) pendingMapId = mapId;
+    },
+    raycast(origin, direction, maxDistance) {
+      return current?.raycast(origin, direction, maxDistance) ?? null;
+    },
+    buildMinimap: (world, textured = true) => options.buildMinimap(world, textured),
+    queueMinimap,
+    prepareServices,
+    prepareBattleServices,
+    activate,
+    switchMap(mapId) {
+      if (current?.mapId === mapId) return current;
+      const cached = cache.get(mapId);
+      return cached ? activate(cached) : ensure(mapId);
+    },
+    ensure,
+    invalidateSkyPresentation() { skyPresentationDirty = true; },
+    markEnvironmentPrepared(world) {
+      if (world && world === current) skyEnvironmentDeferred = false;
+    },
+    setDormant(nextDormant) {
+      if (!current) return;
+      if (!nextDormant && skyPresentationDirty) restoreAtmosphere(current);
+      if (dormant === nextDormant) return;
+      dormant = nextDormant;
+      options.setSceneWorldActive(current.group, !nextDormant);
+    },
+  };
+}

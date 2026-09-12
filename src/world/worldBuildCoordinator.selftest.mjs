@@ -1,0 +1,762 @@
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import { createWorldBuildCoordinator } from './worldBuildCoordinator.ts';
+import { registerWorldDestructibles, notifyShellSweep } from './destructibles.ts';
+import { readFileSync } from 'node:fs';
+import { registerRetainedObject3DResources } from '../engine/resourceLifetime.ts';
+import { createFrameBudgetYielder } from '../engine/frameScheduler.ts';
+
+let clock = 2000;
+let moduleLoads = 0;
+let mapBuilds = 0;
+const progress = [];
+const scene = new THREE.Scene();
+const registryChecks = [];
+const disposedBindings = [];
+const coordinator = createWorldBuildCoordinator({
+  engineContext: { id: 'engine' },
+  scene,
+  renderer: { renderLists: { dispose() {} } },
+  deviceTier: 'mobile',
+  getCurrentWorld: () => null,
+  getGarageActivity: () => ({
+    phase: 'garage', transitionActive: false, lastActivityAt: 0,
+  }),
+  releaseShadowMaterial() {},
+  loadModule: async () => {
+    moduleLoads++;
+    return {
+      async createMapAsync(_engine, { mapId }, onProgress) {
+        mapBuilds++;
+        await onProgress('Surveying terrain', 0.2);
+        await onProgress('Building terrain meshes', 0.7);
+        await onProgress('Sealing the battlefield', 1);
+        const group = new THREE.Group();
+        group.name = mapId;
+        scene.add(group);
+        const unregister = registerWorldDestructibles({
+          key: mapId,
+          isActive: () => { registryChecks.push(mapId); return group.visible; },
+          sweep() {}, impact() {},
+        });
+        return { group, dispose() { disposedBindings.push(mapId); unregister(); } };
+      },
+    };
+  },
+  now: () => clock += 10,
+  foregroundYielder: () => async () => {},
+  backgroundYielder: () => async () => {},
+  resourceLimits: { pedestalVisuals: 2, worldScenes: 2 },
+});
+
+const verdantA = coordinator.beginBuild('verdant', (fraction, label) => {
+  progress.push([fraction, label]);
+});
+const verdantB = coordinator.beginBuild('verdant');
+assert.equal(verdantA.promise, verdantB.promise, 'concurrent callers join one map build');
+const verdant = await verdantA.promise;
+assert.equal(moduleLoads, 1);
+assert.equal(mapBuilds, 1);
+assert.equal(verdant.group.visible, false, 'completed maps stay dormant until activation');
+assert.equal(progress.at(-1)[0], 1);
+assert.ok(verdantA.stageTimings.heightField >= 0);
+
+const cached = coordinator.beginBuild('verdant');
+assert.equal(await cached.promise, verdant, 'complete map scenes are reused exactly');
+assert.equal(cached.label, 'Ready');
+
+const desertPrefetch = coordinator.prefetch('desert', { intent: true });
+const desertForeground = coordinator.beginBuild('desert');
+assert.ok(desertPrefetch, 'an available residency slot accepts intent prefetch');
+await Promise.all([desertPrefetch, desertForeground.promise]);
+assert.equal(mapBuilds, 2, 'foreground entry promotes instead of duplicating an idle build');
+assert.equal(coordinator.stats.joined, 1);
+assert.equal(coordinator.stats.promoted, 1);
+assert.equal(coordinator.stats.completed, 1);
+
+const stalePrefetch = coordinator.prefetch('stale', { intent: true });
+assert.equal(stalePrefetch, null,
+  'mobile residency prevents speculative maps once the cache is full');
+assert.equal(coordinator.stats.skippedCapacity, 1);
+
+assert.equal(coordinator.cache.size, 2);
+await coordinator.beginBuild('alpine').promise;
+assert.equal(coordinator.cache.size, 3, 'foreground demand may temporarily exceed idle capacity');
+coordinator.enforceCacheBudget();
+assert.equal(coordinator.cache.size, 2);
+assert.equal(coordinator.lastRelease.id, 'verdant');
+assert.equal(verdant.group.parent, null, 'eviction detaches the released scene graph');
+assert.deepEqual(disposedBindings, ['verdant'], 'eviction releases external callbacks exactly once');
+// Retaining one global closure per visited map defeats the two-world cache
+// even when GPU disposal receipts look healthy. Exercise the real registry.
+for (let index = 0; index < 30; index++) {
+  await coordinator.beginBuild(`lifetime-${index}`).promise;
+  coordinator.enforceCacheBudget();
+  registryChecks.length = 0;
+  notifyShellSweep(0, 0, 0, 1, 1, 1);
+  assert.deepEqual(registryChecks, [...coordinator.cache.keys()],
+    'dispatch inspects only resident worlds, not all thirty historical builds');
+}
+const beforeRepeatedEnforce = disposedBindings.length;
+coordinator.enforceCacheBudget();
+assert.equal(disposedBindings.length, beforeRepeatedEnforce, 'cached dormancy does not release bindings');
+const propsSource = readFileSync(new URL('./props.ts', import.meta.url), 'utf8');
+const mapSource = readFileSync(new URL('./map.ts', import.meta.url), 'utf8');
+assert.match(propsSource, /const registerDestructibles = \(\): \(\(\) => void\) => registerWorldDestructibles\(/,
+  'partially constructed props expose a deferred registration, not a global retained closure');
+assert.match(mapSource, /const unregisterDestructibles = props\.registerDestructibles\(\);\s*return \{\s*mapId: config\.id,\s*dispose\(\) \{\s*terrain\.userData\.cancelSourcedTextures\?\.\(\);\s*unregisterDestructibles\(\);\s*vegetation\.dispose\(\);/,
+  'completed assembly cancels source work before releasing external bindings and vegetation on eviction');
+
+let grantBlockedLease;
+let lateLeaseReleases = 0;
+const promotionCoordinator = createWorldBuildCoordinator({
+  engineContext: { id: 'engine' },
+  scene: new THREE.Scene(),
+  renderer: { renderLists: { dispose() {} } },
+  deviceTier: 'desktop',
+  getCurrentWorld: () => null,
+  getGarageActivity: () => ({
+    phase: 'garage', transitionActive: false, lastActivityAt: 0,
+  }),
+  releaseShadowMaterial() {},
+  loadModule: async () => ({
+    async createMapAsync(_engine, { mapId }, onProgress) {
+      await onProgress('Surveying terrain', 0.2);
+      const group = new THREE.Group();
+      group.name = mapId;
+      return { group };
+    },
+  }),
+  acquireBackgroundWork: () => new Promise((resolve) => {
+    grantBlockedLease = resolve;
+  }),
+  foregroundYielder: () => async () => {},
+  backgroundYielder: () => async () => {},
+  resourceLimits: { pedestalVisuals: 4, worldScenes: 4 },
+});
+
+const blockedPrefetch = promotionCoordinator.prefetch('fjord', { intent: true });
+assert.ok(blockedPrefetch);
+await new Promise((resolve) => setImmediate(resolve));
+assert.equal(typeof grantBlockedLease, 'function', 'prefetch waits for the optional Garage lane');
+const promotedBuild = promotionCoordinator.beginBuild('fjord');
+const promotedWorld = await promotedBuild.promise;
+assert.equal(promotedWorld.group.name, 'fjord',
+  'foreground promotion does not wait for a blocked background-work lane');
+grantBlockedLease({ release() { lateLeaseReleases += 1; } });
+await new Promise((resolve) => setImmediate(resolve));
+assert.equal(lateLeaseReleases, 1, 'a lease granted after promotion is returned immediately');
+await blockedPrefetch;
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+const nextTurn = () => new Promise(resolve => setImmediate(resolve));
+
+async function boundedResult(promise) {
+  let result;
+  promise.then(value => { result = { value }; }, error => { result = { error }; });
+  await nextTurn();
+  assert.ok(result, 'controlled build settles without another timer or Garage return');
+  return result;
+}
+
+function cancellationFixture(overrides = {}) {
+  const scene = new THREE.Scene();
+  const shadowReleases = [];
+  let renderListReleases = 0;
+  const coordinator = createWorldBuildCoordinator({
+    engineContext: {}, scene,
+    renderer: { renderLists: { dispose() { renderListReleases++; } } },
+    deviceTier: 'desktop', getCurrentWorld: () => null,
+    getGarageActivity: () => ({ phase: 'garage', transitionActive: false, lastActivityAt: 0 }),
+    releaseShadowMaterial: material => shadowReleases.push(material),
+    now: () => 5000,
+    sleep: () => { throw new Error('fixture must explicitly own every deferred sleep'); },
+    foregroundYielder: () => async () => {}, backgroundYielder: () => async () => {},
+    loadModule: async () => ({ createMapAsync: async () => ({ group: new THREE.Group() }) }),
+    ...overrides,
+  });
+  return { coordinator, scene, shadowReleases, get renderListReleases() { return renderListReleases; } };
+}
+
+async function cancelledLullSettles() {
+  const sleep = deferred();
+  let sleeps = 0, constructions = 0;
+  const { coordinator } = cancellationFixture({
+    getGarageActivity: () => ({ phase: 'battle', transitionActive: false, lastActivityAt: 0 }),
+    sleep: duration => { assert.equal(duration, 120); sleeps++; return sleep.promise; },
+    loadModule: async () => ({ async createMapAsync(_engine, _options, progress) {
+      await progress('Surveying terrain', 0);
+      constructions++;
+      return { group: new THREE.Group() };
+    } }),
+  });
+  const pending = coordinator.prefetch('lull-cancel');
+  await nextTurn();
+  assert.equal(sleeps, 1);
+  coordinator.cancelBackgroundExcept();
+  assert.deepEqual(await boundedResult(pending), { value: null });
+  assert.equal(constructions, 0);
+  assert.equal(coordinator.stats.cancelled, 1);
+  assert.equal(coordinator.stats.active, null);
+  sleep.resolve(); // The original timer may fire once; it must not restart the loop.
+  await nextTurn();
+  assert.equal(sleeps, 1);
+  assert.equal(coordinator.cache.size, 0);
+}
+
+async function manyLullPollsKeepOneInterruptSubscription() {
+  const races = new Map(), sleeps = [];
+  const nativeRace = Promise.race;
+  // Observe subscriptions while preserving actual native Promise.race and
+  // deferred sleeps. Reusing the interrupt in a per-poll race fails this gate.
+  Promise.race = function(inputs) {
+    for (const promise of inputs) races.set(promise, (races.get(promise) ?? 0) + 1);
+    return nativeRace.call(this, inputs);
+  };
+  try {
+    const { coordinator } = cancellationFixture({
+      getGarageActivity: () => ({ phase: 'battle', transitionActive: false, lastActivityAt: 0 }),
+      sleep: () => { const wait = deferred(); sleeps.push(wait); return wait.promise; },
+      loadModule: async () => ({ async createMapAsync(_engine, _options, progress) {
+        await progress('Surveying terrain', 0);
+        return { group: new THREE.Group() };
+      } }),
+    });
+    const pending = coordinator.prefetch('many-polls');
+    await nextTurn();
+    for (let i = 0; i < 20; i++) {
+      assert.equal(sleeps.length, i + 1);
+      sleeps[i].resolve();
+      await nextTurn();
+    }
+    assert.equal(races.size, 2, 'one poll promise and one interrupt, independent of poll count');
+    assert.ok([...races.values()].every(count => count === 1));
+    coordinator.cancelBackgroundExcept();
+    assert.deepEqual(await boundedResult(pending), { value: null });
+    sleeps.at(-1).resolve();
+    await nextTurn();
+    assert.equal(sleeps.length, 21, 'the final outstanding sleep cannot restart polling');
+  } finally {
+    Promise.race = nativeRace;
+  }
+}
+
+async function cancelledBeforeModuleSkipsConstruction() {
+  const module = deferred();
+  let constructions = 0;
+  const { coordinator } = cancellationFixture({ loadModule: () => module.promise });
+  const pending = coordinator.prefetch('module-cancel', { intent: true });
+  coordinator.cancelBackgroundExcept();
+  module.resolve({ createMapAsync: async () => { constructions++; return { group: new THREE.Group() }; } });
+  assert.deepEqual(await boundedResult(pending), { value: null });
+  assert.equal(constructions, 0, 'canceled transfer never enters the map builder');
+  assert.equal(coordinator.stats.cancelled, 1);
+  assert.equal(coordinator.stats.completed, 0);
+}
+
+function trackedResources(label, disposals) {
+  const geometry = new THREE.BoxGeometry();
+  const texture = new THREE.DataTexture(new Uint8Array([1, 2, 3, 255]), 1, 1);
+  const material = new THREE.MeshBasicMaterial({ map: texture });
+  for (const [kind, resource] of Object.entries({ geometry, material, texture })) {
+    resource.addEventListener('dispose', () => disposals.push(`${label}:${kind}`));
+  }
+  return { geometry, material, texture };
+}
+
+async function cancelledFinalYieldDisposesCompletedWorld() {
+  const pacing = deferred(), disposals = [];
+  const own = trackedResources('own', disposals);
+  const attached = trackedResources('attached', disposals);
+  const cached = trackedResources('cached', disposals);
+  const offTree = trackedResources('offTree', disposals);
+  let completedWorld, externalDisposals = 0;
+  const f = cancellationFixture({
+    foregroundYielder: () => () => pacing.promise,
+    loadModule: async () => ({ async createMapAsync(_engine, _options, progress) {
+      await progress('Sealing the battlefield', .96);
+      const group = new THREE.Group();
+      for (const resources of [own, attached, cached]) {
+        group.add(new THREE.Mesh(resources.geometry, resources.material));
+      }
+      registerRetainedObject3DResources(group, {
+        geometries: [offTree.geometry], materials: [offTree.material], textures: [offTree.texture],
+      });
+      f.scene.add(group);
+      completedWorld = { group, dispose() { externalDisposals++; } };
+      return completedWorld;
+    } }),
+  });
+  const attachedRoot = new THREE.Mesh(attached.geometry, attached.material);
+  f.scene.add(attachedRoot);
+  const cachedWorld = { group: new THREE.Mesh(cached.geometry, cached.material) };
+  f.coordinator.cache.set('unrelated-dormant', cachedWorld);
+  const pending = f.coordinator.prefetch('final-cancel', { intent: true });
+  await nextTurn();
+  f.coordinator.cancelBackgroundExcept();
+  pacing.resolve();
+  assert.deepEqual(await boundedResult(pending), { value: null });
+  assert.ok(completedWorld, 'final yield returns normally so completed ownership exists for disposal');
+  assert.equal(completedWorld.group.parent, null);
+  assert.equal(externalDisposals, 1);
+  assert.deepEqual(disposals.sort(), ['offTree:geometry', 'offTree:material', 'offTree:texture',
+    'own:geometry', 'own:material', 'own:texture'].sort());
+  assert.deepEqual(new Set(f.shadowReleases), new Set([own.material, offTree.material]));
+  assert.equal(f.renderListReleases, 1);
+  assert.equal(f.scene.children.length, 1);
+  assert.equal(attachedRoot.parent, f.scene);
+  assert.equal(cachedWorld.group.parent, null, 'detached cached resources are preserved too');
+  assert.deepEqual([...f.coordinator.cache.keys()], ['unrelated-dormant']);
+  assert.equal(f.coordinator.stats.completed, 0);
+  assert.equal(f.coordinator.stats.cancelled, 1);
+  for (const resources of [attached, cached]) {
+    resources.geometry.dispose(); resources.material.dispose(); resources.texture.dispose();
+  }
+}
+
+async function cancelledLeaseReturnsLateGrant() {
+  const lease = deferred();
+  let released = 0;
+  const f = cancellationFixture({
+    acquireBackgroundWork: () => lease.promise,
+    loadModule: async () => ({ async createMapAsync(_engine, _options, progress) {
+      await progress('Surveying terrain', 0);
+      return { group: new THREE.Group() };
+    } }),
+  });
+  const pending = f.coordinator.prefetch('lease-cancel', { intent: true });
+  await nextTurn();
+  f.coordinator.cancelBackgroundExcept();
+  assert.deepEqual(await boundedResult(pending), { value: null });
+  lease.resolve({ release() { released++; } });
+  await nextTurn();
+  assert.equal(released, 1);
+  assert.equal(f.coordinator.stats.cancelled, 1);
+  assert.equal(f.coordinator.cache.size, 0);
+}
+
+async function sameIdDemandWaitsForDiscard() {
+  const oldYield = deferred(), freshYield = deferred();
+  const events = [], dispatched = [];
+  let calls = 0;
+  const f = cancellationFixture({
+    foregroundYielder: () => () => (calls === 1 ? oldYield.promise : freshYield.promise),
+    loadModule: async () => ({ async createMapAsync(_engine, { mapId }, progress) {
+      const serial = ++calls;
+      events.push(`start:${serial}`);
+      await progress('Sealing the battlefield', .96);
+      const group = new THREE.Group();
+      f.scene.add(group);
+      const unregister = registerWorldDestructibles({ key: mapId, isActive: () => true,
+        sweep() { dispatched.push(serial); }, impact() {} });
+      return { group, serial, dispose() { events.push(`dispose:${serial}`); unregister(); } };
+    } }),
+  });
+  const oldPrefetch = f.coordinator.prefetch('same-id-cancel', { intent: true });
+  const oldRequest = f.coordinator.beginBuild('same-id-cancel', null, { background: true });
+  await nextTurn();
+  f.coordinator.cancelBackgroundExcept();
+  const replacement = f.coordinator.beginBuild('same-id-cancel');
+  assert.notEqual(replacement.promise, oldRequest.promise);
+  await nextTurn();
+  assert.deepEqual(events, ['start:1'], 'fresh construction waits for old callback disposal');
+  oldYield.resolve();
+  assert.deepEqual(await boundedResult(oldPrefetch), { value: null });
+  assert.deepEqual(events, ['start:1', 'dispose:1', 'start:2']);
+  assert.equal(f.coordinator.stats.active, 'same-id-cancel', 'old finally cannot clear the fresh record');
+  assert.equal(f.coordinator.stats.promoted, 0, 'a canceled record is never promoted');
+  freshYield.resolve();
+  const result = await boundedResult(replacement.promise);
+  assert.equal(result.value.serial, 2);
+  assert.equal(f.coordinator.cache.get('same-id-cancel'), result.value);
+  assert.equal(f.coordinator.stats.active, null);
+  assert.equal(f.scene.children.length, 1);
+  notifyShellSweep(0, 0, 0, 1, 1, 1);
+  assert.deepEqual(dispatched, [2], 'discarded completion cannot replace or remove the new callback');
+  result.value.dispose();
+}
+
+async function genuineErrorsStayGenuine() {
+  const failure = new Error('real map construction failed');
+  const { coordinator } = cancellationFixture({
+    loadModule: async () => ({ createMapAsync: async () => { throw failure; } }),
+  });
+  assert.deepEqual(await boundedResult(coordinator.beginBuild('failed').promise), { error: failure });
+  assert.equal(coordinator.stats.cancelled, 0);
+  assert.equal(coordinator.cache.size, 0);
+  // Optional speculative prefetch keeps its existing null-on-failure API;
+  // an explicit foreground request must still receive the original error.
+  assert.deepEqual(await boundedResult(coordinator.prefetch('failed', { intent: true })), { value: null });
+  assert.deepEqual(await boundedResult(coordinator.beginBuild('failed').promise), { error: failure });
+  assert.equal(coordinator.stats.cancelled, 0);
+}
+
+await cancelledLullSettles();
+await manyLullPollsKeepOneInterruptSubscription();
+await cancelledBeforeModuleSkipsConstruction();
+await cancelledFinalYieldDisposesCompletedWorld();
+await cancelledLeaseReturnsLateGrant();
+await sameIdDemandWaitsForDiscard();
+await genuineErrorsStayGenuine();
+
+for (const { intent, costs, expectedFrames } of [
+  { intent: true, costs: Array(14).fill(0), expectedFrames: [] },
+  { intent: true, costs: Array(8).fill(1), expectedFrames: [5004, 5008] },
+  { intent: false, costs: Array(4).fill(0), expectedFrames: Array(4).fill(5000) },
+]) {
+  let clock = 5000;
+  let activeLeases = 0;
+  let released = 0;
+  const kinds = [];
+  const frames = [];
+  const f = cancellationFixture({
+    now: () => clock,
+    acquireBackgroundWork: async (kind, stillValid) => {
+      assert.equal(stillValid(), true);
+      assert.equal(activeLeases, 0, 'each construction checkpoint returns its previous lease before reacquiring');
+      activeLeases++;
+      kinds.push(kind);
+      return { release() { activeLeases--; released++; } };
+    },
+    backgroundYielder: () => createFrameBudgetYielder(4, {
+      now: () => clock,
+      yieldFrame: async () => {
+        assert.equal(activeLeases, 1, 'a scheduled construction slice retains its exact work lease');
+        frames.push(clock);
+      },
+    }),
+    foregroundYielder: () => async () => assert.fail('unpromoted prefetch remains background work'),
+    loadModule: async () => ({ async createMapAsync(_engine, _options, progress, slicing) {
+      assert.equal(slicing.fineSlices, true, 'budgeting never drops the exact geometry checkpoints');
+      for (let index = 0; index < costs.length; index++) {
+        clock += costs[index];
+        await progress('Building terrain meshes', index / costs.length);
+      }
+      return { group: new THREE.Group() };
+    } }),
+  });
+  const world = await f.coordinator.prefetch('winter', { intent });
+  assert.deepEqual(frames, expectedFrames, intent
+    ? 'explicit-intent checkpoints honor the 4ms budget instead of forcing a frame each time'
+    : 'passive prefetch retains its forced-frame pacing policy');
+  assert.deepEqual(kinds, costs.map(() => intent ? 'world-intent' : 'world'));
+  assert.equal(released, costs.length, 'cheap checkpoints still release and reacquire fairly');
+  assert.equal(activeLeases, 0);
+  assert.equal(world.group.visible, false);
+  assert.equal(f.coordinator.cache.get('winter'), world);
+  assert.equal(f.coordinator.stats.completed, 1);
+  assert.equal(f.coordinator.prefetch('winter', { intent }), null, 'completed cache hits do not restart scheduling');
+}
+
+for (const action of ['promote', 'cancel-mid', 'cancel-final']) {
+  let clock = 5000;
+  const frame = deferred();
+  const events = [];
+  let frames = 0;
+  let leases = 0;
+  let releases = 0;
+  let foregroundYields = 0;
+  let disposedWorlds = 0;
+  let assembledWorld;
+  const f = cancellationFixture({
+    now: () => clock,
+    acquireBackgroundWork: async (kind, stillValid) => {
+      assert.equal(kind, 'world-intent');
+      assert.equal(stillValid(), true);
+      leases++;
+      return { release() { releases++; } };
+    },
+    backgroundYielder: () => createFrameBudgetYielder(4, {
+      now: () => clock,
+      yieldFrame: () => { frames++; return frame.promise; },
+    }),
+    foregroundYielder: () => async () => { foregroundYields++; },
+    loadModule: async () => ({ async createMapAsync(_engine, _options, progress) {
+      clock += 4;
+      if (action !== 'cancel-final') {
+        await progress('Building terrain meshes', 0.4);
+        events.push('admitted-slice');
+      }
+      await progress('Sealing the battlefield', 0.96);
+      events.push('assemble');
+      const group = new THREE.Group();
+      f.scene.add(group);
+      assembledWorld = { group, dispose() { disposedWorlds++; } };
+      return assembledWorld;
+    } }),
+  });
+  const prefetch = f.coordinator.prefetch('winter', { intent: true });
+  await nextTurn();
+  assert.equal(frames, 1, 'budget exhaustion can own a genuine deferred frame');
+  assert.equal(leases, 1);
+  assert.equal(releases, 0, 'pending background work retains its lease until its checkpoint settles');
+  assert.deepEqual(events, []);
+  const foreground = action === 'promote' ? f.coordinator.beginBuild('winter') : null;
+  if (!foreground) f.coordinator.cancelBackgroundExcept();
+  await nextTurn();
+  assert.deepEqual(events, [], 'promotion/cancellation does not run ahead of the pending scheduler');
+  assert.equal(releases, 0);
+  assert.equal(f.coordinator.cache.size, 0);
+  frame.resolve();
+  const result = await boundedResult(prefetch);
+  assert.equal(frames, 1, 'the settled frame cannot start another background yield');
+  assert.equal(leases, 1, 'promotion/cancellation never reacquires a stale background lease');
+  assert.equal(releases, 1);
+  if (foreground) {
+    assert.equal(await foreground.promise, result.value, 'promotion joins the same exact assembled world');
+    assert.deepEqual(events, ['admitted-slice', 'assemble']);
+    assert.equal(foregroundYields, 1, 'subsequent checkpoints immediately use the foreground scheduler');
+    assert.equal(f.coordinator.stats.promoted, 1);
+    assert.equal(disposedWorlds, 0);
+    assert.equal(f.coordinator.cache.get('winter'), result.value);
+    result.value.group.removeFromParent();
+    result.value.dispose();
+  } else {
+    assert.equal(result.value, null);
+    assert.equal(f.coordinator.stats.cancelled, 1);
+    assert.equal(f.coordinator.stats.completed, 0);
+    assert.equal(f.coordinator.cache.size, 0);
+    assert.equal(foregroundYields, 0);
+    assert.equal(f.coordinator.stats.active, null);
+    if (action === 'cancel-final') {
+      assert.deepEqual(events, ['assemble'], 'already admitted final assembly creates the complete disposal owner');
+      assert.equal(assembledWorld.group.parent, null);
+      assert.equal(disposedWorlds, 1);
+    } else {
+      assert.deepEqual(events, ['admitted-slice'], 'cancellation stops at the next construction boundary before final assembly');
+      assert.equal(assembledWorld, undefined);
+      assert.equal(disposedWorlds, 0);
+    }
+  }
+  const settledEvents = events.slice();
+  frame.resolve();
+  await nextTurn();
+  assert.deepEqual(events, settledEvents, 'a late scheduler resolution cannot restart disposed or promoted work');
+  assert.equal(releases, 1);
+}
+
+const intentLeases = [];
+const intentYields = [];
+let intentReleases = 0;
+let cancelIntent = false;
+const intentCoordinator = createWorldBuildCoordinator({
+  engineContext: {},
+  scene: new THREE.Scene(),
+  renderer: { renderLists: { dispose() {} } },
+  deviceTier: 'desktop',
+  getCurrentWorld: () => null,
+  getGarageActivity: () => ({
+    phase: 'garage', transitionActive: false, lastActivityAt: 1000,
+  }),
+  releaseShadowMaterial() {},
+  now: () => 1000,
+  sleep: async () => assert.fail('explicit map intent does not wait for Garage inactivity'),
+  loadModule: async () => ({
+    async createMapAsync(_engine, _options, onProgress, slicing) {
+      assert.equal(slicing.fineSlices, true, 'intent preserves fine-grained map construction');
+      await onProgress('Surveying terrain', 0.2);
+      await onProgress('Sealing the battlefield', 1);
+      return { group: new THREE.Group() };
+    },
+  }),
+  acquireBackgroundWork: async (kind, stillValid) => {
+    assert.equal(stillValid(), true);
+    intentLeases.push(kind);
+    return { release() { intentReleases++; } };
+  },
+  foregroundYielder: () => async () => assert.fail('intent remains background work'),
+  backgroundYielder: () => async (force) => {
+    intentYields.push(force);
+    if (cancelIntent) intentCoordinator.cancelBackgroundExcept(null);
+  },
+  resourceLimits: { pedestalVisuals: 4, worldScenes: 4 },
+});
+const intentWorld = await intentCoordinator.prefetch('fjord', { intent: true });
+assert.ok(intentWorld, 'explicit map intent proceeds despite recent Garage activity');
+assert.deepEqual(intentLeases, ['world-intent', 'world-intent']);
+assert.deepEqual(intentYields, [false, false], 'explicit intent checkpoints leave the background budget in control');
+assert.equal(intentReleases, 2, 'every background slice returns its work lease');
+assert.equal(intentWorld.group.visible, false, 'intent construction does not activate its world');
+cancelIntent = true;
+assert.equal(await intentCoordinator.prefetch('alpine', { intent: true }), null,
+  'a stale intent build still cancels at its next construction boundary');
+assert.equal(intentCoordinator.cache.has('alpine'), false, 'cancelled intent is never cached');
+assert.equal(intentCoordinator.stats.cancelled, 1);
+assert.equal(intentReleases, 3, 'cancelled intent returns its final work lease');
+
+async function unchangedProgressStillSchedulesEveryCheckpoint() {
+  const notifications = [], lateNotifications = [];
+  let yields = 0, clock = 0;
+  const f = cancellationFixture({
+    now: () => ++clock,
+    foregroundYielder: () => async () => { yields++; },
+    loadModule: async () => ({ async createMapAsync(_engine, _options, progress) {
+      await progress('Surveying terrain', 0);
+      await progress('Assembling wrecks', 0.5);
+      for (let i = 0; i < 1000; i++) await progress('Assembling wrecks', 0.5);
+      f.coordinator.beginBuild('progress-dedup', (fraction, label) => {
+        lateNotifications.push([fraction, label]);
+      });
+      assert.deepEqual(lateNotifications, [[0.5, 'Assembling wrecks']],
+        'late listeners receive current progress even without another publication');
+      await progress('Sealing the battlefield', 0.5);
+      await progress('Sealing the battlefield', 0.50001);
+      await progress('Sealing the battlefield', 0.50001);
+      await progress('Assembling wrecks', 0.5);
+      await progress('Sealing the battlefield', 1);
+      return { group: new THREE.Group() };
+    } }),
+  });
+  const throwingObserver = f.coordinator.beginBuild('progress-dedup', () => {
+    throw new Error('advisory observer failure');
+  });
+  const build = f.coordinator.beginBuild('progress-dedup', (fraction, label) => {
+    notifications.push([fraction, label]);
+  });
+  assert.equal(build.promise, throwingObserver.promise);
+  await build.promise;
+  const changes = [[0.5, 'Assembling wrecks'], [0.5, 'Sealing the battlefield'],
+    [0.50001, 'Sealing the battlefield'], [0.5, 'Assembling wrecks'], [1, 'Sealing the battlefield']];
+  assert.equal(notifications.length, 6, '1001 identical checkpoints publish one change');
+  assert.deepEqual(notifications, [[0, 'Surveying terrain'], ...changes],
+    'only identical label/fraction pairs are skipped, never fine progress or stage changes');
+  assert.deepEqual(lateNotifications, changes);
+  assert.equal(yields, 1007, 'all fine checkpoints retain their scheduling opportunity');
+  assert.ok(build.stageTimings.heightField > 0,
+    'an initial checkpoint equal to defaults still initializes stage timing');
+}
+
+async function unchangedProgressStillCancelsAndReturnsLeases() {
+  const notifications = [];
+  let leases = 0, releases = 0, yields = 0, admittedSlices = 0;
+  const f = cancellationFixture({
+    acquireBackgroundWork: async () => {
+      leases++;
+      return { release() { releases++; } };
+    },
+    backgroundYielder: () => async () => {
+      if (++yields === 2) f.coordinator.cancelBackgroundExcept();
+    },
+    loadModule: async () => ({ async createMapAsync(_engine, _options, progress) {
+      for (let i = 0; i < 10; i++) {
+        await progress('Assembling wrecks', 0.5);
+        admittedSlices++;
+      }
+      assert.fail('cancelled duplicate checkpoints cannot finish assembly');
+    } }),
+  });
+  const build = f.coordinator.beginBuild('duplicate-cancel', (fraction, label) => {
+    notifications.push([fraction, label]);
+  }, { background: true, waitForGarageLull: false });
+  await assert.rejects(build.promise, /Cancelled stale battlefield prefetch/);
+  assert.deepEqual(notifications, [[0, 'Surveying terrain'], [0.5, 'Assembling wrecks']]);
+  assert.equal(yields, 2);
+  assert.equal(admittedSlices, 2, 'existing admitted-slice semantics survive duplicate progress');
+  assert.equal(leases, 2);
+  assert.equal(releases, 2, 'cancellation returns every acquired lease exactly once');
+  assert.equal(f.coordinator.cache.size, 0);
+  assert.equal(f.coordinator.stats.cancelled, 1);
+}
+
+await unchangedProgressStillSchedulesEveryCheckpoint();
+await unchangedProgressStillCancelsAndReturnsLeases();
+
+async function defaultForegroundUsesShortPaintBudget() {
+  let clock = 0, settled = false;
+  const tasks = [], frames = [], timers = [], admitted = [], notifications = [];
+  const listeners = new Set();
+  // Exercise the coordinator's DEFAULT policy, not an injected yielder with
+  // the expected constants. Only browser delivery and its clock are controlled.
+  const host = {
+    performance: { now: () => clock },
+    scheduler: { yield: () => new Promise(resolve => tasks.push({ at: clock, resolve })) },
+    requestAnimationFrame(callback) { frames.push({ at: clock, callback, delivered: false }); return frames.length; },
+    cancelAnimationFrame() {},
+    setTimeout(callback, delay) { timers.push({ callback, delay, cancelled: false }); return timers.length; },
+    clearTimeout(id) { timers[id - 1].cancelled = true; },
+    document: { hidden: false,
+      addEventListener(type, callback) { assert.equal(type, 'visibilitychange'); listeners.add(callback); },
+      removeEventListener(type, callback) { assert.equal(type, 'visibilitychange'); listeners.delete(callback); },
+    },
+  };
+  const prior = new Map(Object.keys(host).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  const frame = (index, at) => {
+    clock = at; frames[index].delivered = true; frames[index].callback();
+  };
+  let pending;
+  try {
+    for (const [key, value] of Object.entries(host)) Object.defineProperty(globalThis, key,
+      { configurable: true, writable: true, value });
+    const f = cancellationFixture({
+      now: () => clock,
+      foregroundYielder: undefined,
+      loadModule: async () => ({ async createMapAsync(_engine, _options, progress, slicing) {
+        assert.equal(slicing.fineSlices, true);
+        for (const cost of [5, 1, 5, 1, 3, 1, 5, 1, 9, 1]) {
+          clock += cost;
+          const checkpoint = clock;
+          await progress('Building terrain meshes', 0.5);
+          admitted.push(checkpoint);
+        }
+        return { group: new THREE.Group() };
+      } }),
+    });
+    pending = f.coordinator.beginBuild('default-foreground-policy',
+      (fraction, label) => notifications.push([fraction, label])).promise;
+    pending.then(() => { settled = true; }, () => { settled = true; });
+    await nextTurn();
+    assert.deepEqual(admitted, [5], 'default policy stops at 6 ms, not the old 12 ms task budget');
+    assert.deepEqual(tasks.map(row => row.at), [6]);
+    tasks[0].resolve(); await nextTurn();
+    assert.deepEqual(admitted, [5, 6, 11]);
+    assert.deepEqual(tasks.map(row => row.at), [6, 12]);
+    tasks[1].resolve(); await nextTurn();
+    assert.deepEqual(admitted, [5, 6, 11, 12, 15]);
+    assert.deepEqual(frames.map(row => row.at), [16], 'paint deadline wins over a fresh four-millisecond slice');
+    assert.deepEqual(timers.map(row => row.delay), [1000], 'existing visible-frame timeout is unchanged');
+    frame(0, 20); await nextTurn();
+    assert.deepEqual(admitted, [5, 6, 11, 12, 15], 'rAF cannot admit work before the following task');
+    assert.equal(tasks[2].at, 20);
+    assert.equal(timers[0].cancelled, true);
+    assert.equal(listeners.size, 0);
+    clock = 22; tasks[2].resolve(); await nextTurn();
+    assert.deepEqual(admitted, [5, 6, 11, 12, 15, 16, 27]);
+    assert.equal(tasks[3].at, 28, 'six-millisecond task budget restarts after post-frame task completion');
+    tasks[3].resolve(); await nextTurn();
+    assert.equal(tasks[4].at, 37, 'overrunning work still yields only at its actual checkpoint');
+    tasks[4].resolve(); await nextTurn();
+    assert.deepEqual(frames.map(row => row.at), [16, 38], '16 ms since completed paint wins over a one-millisecond slice');
+    frame(1, 38); await nextTurn();
+    tasks[5].resolve();
+    const world = await pending;
+    assert.equal(world.group.visible, false);
+    assert.deepEqual(admitted, [5, 6, 11, 12, 15, 16, 27, 28, 37, 38]);
+    assert.deepEqual(notifications, [[0, 'Surveying terrain'], [0.5, 'Building terrain meshes']],
+      'initial state and one changed UI progress value survive every pacing checkpoint');
+    assert.ok(timers.every(row => row.cancelled));
+    assert.equal(listeners.size, 0);
+  } finally {
+    // Keep a failed assertion from leaving an owned fixture build suspended.
+    try {
+      for (let attempt = 0; pending && !settled && attempt < 16; attempt++) {
+        frames.forEach((row, index) => { if (!row.delivered) frame(index, clock); });
+        tasks.forEach(row => row.resolve());
+        await nextTurn();
+      }
+      if (pending) assert.equal(settled, true, 'controlled default-policy build settles during cleanup');
+    } finally {
+      for (const [key, descriptor] of prior) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key];
+      }
+    }
+  }
+}
+
+await defaultForegroundUsesShortPaintBudget();
+
+console.log('worldBuildCoordinator.selftest: join, promotion, residency, eviction, intent pacing, progress dedup, cancellation and default foreground 6/16 policy passed');

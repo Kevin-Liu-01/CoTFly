@@ -1,0 +1,227 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { Box3, Vector3 } from 'three';
+import { createTank } from '../tankFactory.ts';
+import { getSpec } from '../specs.ts';
+import { tankTier } from '../tier.ts';
+
+const spec = getSpec('spz_puma_s1');
+assert.ok(spec, 'SPz Puma S1 is registered');
+assert.equal(spec.name, 'Schützenpanzer Puma S1');
+assert.equal(tankTier(spec.id), 10, 'Puma S1 is Tier X');
+assert.equal(spec.role, 'ifv');
+assert.equal(spec.weightTons, 43);
+assert.deepEqual(spec.dims, {
+  hullLengthM: 6.84,
+  overallLengthM: 6.84,
+  widthM: 3.51,
+  heightM: 3.24,
+});
+assert.equal(spec.gun.caliberMm, 30);
+assert.deepEqual(spec.armor.gunPivot, [-0.14 * 0.9, 0.42 * 0.9, 1.33 * 0.9],
+  'Puma S1 cannon sits close to the turret centerline while preserving its asymmetric RCT30 face');
+assert.ok(spec.gun.shells.some((round) => round.guided && /Spike LR2 MELLS/.test(round.name)),
+  'Puma S1 has its independent MELLS guided channel');
+assert.ok(spec.armor.crew.every((crew) => !crew.turretLocal && crew.max[1] < 1.93 * 0.9),
+  'all three Puma S1 crew stations remain below the roof in the protected hull cell');
+
+const source = readFileSync(new URL('./pumaS1.ts', import.meta.url), 'utf8');
+assert.doesNotMatch(source, /buildPuma(?:Oracle)?\s*\(/,
+  'new Puma S1 builder does not call either legacy Puma implementation');
+assert.doesNotMatch(source, /from ['"]\.\.\/modern3\.ts['"]/,
+  'new Puma S1 profile has no dependency on the old canonical builder pack');
+assert.doesNotMatch(source, /mantlet/i,
+  'Puma S1 keeps its base gun cradle without introducing a separate mantlet');
+assert.doesNotMatch(source, /height:\s*\[/,
+  'Puma S1 never builds a non-planar roof or turret cap from per-vertex heights');
+assert.doesNotMatch(source, /inset:\s*\[/,
+  'Puma S1 armor rings shrink monotonically as complete planes');
+
+const tank = createTank(spec.id, null, {
+  proceduralOnly: true,
+  quality: 'high',
+  camoSeed: 4242,
+  geometryReceipt: true,
+});
+
+try {
+  tank.root.updateMatrixWorld(true);
+  const hull = tank.root.getObjectByName('rig_hull');
+  const turret = tank.root.getObjectByName('rig_turret');
+  const gun = tank.root.getObjectByName('rig_gun');
+  assert.ok(hull && turret && gun, 'Puma S1 retains the canonical articulated rig');
+  assert.deepEqual(hull.userData.advancedIfvScaleReceipt, {
+    designFamily: 'cot-spz-puma-s1-compact-r1',
+    vehicleScale: 0.9,
+    specSpatialFrameScaled: true,
+    bakedBucketGeometry: true,
+    directAssembliesScaled: true,
+    ownerScalesPreserved: true,
+    turretPivotFromScaledSpec: true,
+    gunPivotFromScaledSpec: true,
+    muzzleAnchorScaled: true,
+    contactGeometryScaled: true,
+    trackHitboxesScaled: true,
+    roadWheelLayoutScaled: true,
+  }, 'Puma S1 publishes one complete 90% render/gameplay scale receipt');
+  assert.equal(turret.userData.advancedIfvScaleReceipt,
+    hull.userData.advancedIfvScaleReceipt,
+    'Puma hull and turret share the same scale frame');
+  assert.ok(Math.abs(gun.getObjectByName('rig_muzzle')?.position.z - 2.85 * 0.9) < 1e-6,
+    'Puma muzzle and firing-effects station follows the compact gun frame');
+  const compactBounds = new Box3().setFromObject(tank.root).getSize(new Vector3());
+  assert.ok(Math.abs(compactBounds.x - 4.127999782562256 * 0.9) < 0.01,
+    'Puma outer width is exactly ten percent smaller');
+  assert.ok(Math.abs(compactBounds.y - 3.7940161061159516 * 0.9) < 0.01,
+    'Puma full equipment height is exactly ten percent smaller');
+  assert.deepEqual(hull.userData.pumaS1Receipt, {
+    independentFromLegacyPuma: true,
+    hullConstruction: 'planar-roof-puma-glacis-monocoque-v6',
+    turretConstruction: 'planar-faceted-rct30-citadel-v4',
+    roadWheelsPerSide: 6,
+    canonicalTrackCourses: 1,
+    duplicateTrackMeshes: 0,
+    suspensionPlacement: 'inboard-behind-road-wheel',
+    trackCenterlineM: 1.47,
+    sideArmorCassettesPerSide: 8,
+    sideArmorLayers: 2,
+    sideArmorInnerSeatM: 1.76,
+    sideArmorOuterEnvelopeM: 2.058,
+    skirtArchitecture: 'segmented-sloped-amap-jacket',
+    skirtAttachment: 'direct-monocoque-overlap-seat-v4',
+    frontSkirtTransition: 'revolution-amap-glacis-downfold-v4',
+    frontShoulderBridge: 'cyclic-hull-amap-overlap-volume-v1',
+    rearTrackDepartureZM: -2.37,
+    rearBulkheadClosureDepthM: 0.20,
+    nativeTrackPattern: 'compact-ifv',
+    baseGunAssembly: 'compact-slash-port-mk30-cradle-v7',
+    mellsLaunchTubes: 0,
+    mellsSquareLaunchCells: 2,
+    panoramicOpticStages: 2,
+    crewLocation: 'protected-hull-cell',
+    planarRoofCell: true,
+    upperGlacisConstruction: 'separate-planar-wedge',
+    monotonicArmorInset: true,
+    concaveSurfaceCount: 0,
+    fenderBridge: 'continuous-hull-skirt-seat',
+    rearTroopRamp: true,
+  });
+  assert.deepEqual(turret.userData.pumaS1TurretReceipt, {
+    unmanned: true,
+    gun: 'MK30-2/ABM',
+    launcher: 'MELLS-Spike-LR2',
+    stabilizedPanoramicSight: true,
+    allAroundCameraCount: 4,
+    remoteSecondaryWeapon: '12.7mm Puma S1 compact RWS',
+    gunCenterlineOffsetFromTurretM: 0.14,
+    gunSideEquipmentPods: 2,
+    gunSideOpticApertures: 4,
+    rotatingOpticAssembly: 'right-front-armored-yoke',
+    mellsLauncherArchitecture: 'twin-square-armored-cells-v1',
+    turretFlankElectronicsBoxes: 2,
+    roofElectronicsBoxes: 2,
+    planarRoofCrown: true,
+    monotonicArmorInset: true,
+    concaveSurfaceCount: 0,
+  });
+  const roofOptics = tank.root.getObjectByName('pumaS1K2bStyleRoofOptics');
+  assert.equal(roofOptics?.parent, turret,
+    'Puma S1 K2B-style panoramic station remains turret-owned');
+  assert.equal(roofOptics?.userData.hasWeapon, false,
+    'Puma roof optics station contains no secondary weapon');
+  assert.equal(roofOptics?.getObjectByName('openYokeRwsMachineGun'), undefined,
+    'Puma roof optics station contains no hidden barrel or receiver mesh');
+  let roofWeaponMesh = false;
+  roofOptics?.traverse((node) => {
+    if (node.userData.appearanceRole === 'machineGun') roofWeaponMesh = true;
+  });
+  assert.equal(roofWeaponMesh, false,
+    'Puma panoramic station has no descendant tagged as machine-gun geometry');
+  assert.deepEqual(turret.userData.pumaS1RoofOpticsReceipt, {
+    designFamily: 'abramsx-open-yoke-v1',
+    variant: 'korean-twin',
+    mountLocal: [0.62, 0.88, 0.52],
+    scale: 0.8,
+    sizeStandard: 'k2b-compact-tower',
+    towerRiseM: 0.1,
+    hasWeapon: false,
+    sensorMount: 'roof',
+    integratedSensorHead: true,
+    turretOwned: true,
+  });
+  const roofRws = tank.root.getObjectByName('pumaS1CompactRoofRws');
+  assert.equal(roofRws?.parent, turret,
+    'Puma S1 compact machine-gun station remains turret-owned');
+  assert.equal(roofRws?.userData.hasWeapon, true,
+    'Puma S1 compact station retains its independent machine gun');
+  assert.equal(roofRws?.userData.hasIntegratedSensorHead, false,
+    'Puma machine-gun station cannot duplicate or intersect the panoramic optics');
+  assert.deepEqual(turret.userData.pumaS1RoofRwsReceipt, {
+    designFamily: 'abramsx-open-yoke-v1',
+    variant: 'puma-s1-compact',
+    mountLocal: [0.42, 0.74, -0.90],
+    scale: 0.68,
+    sizeStandard: 'puma-s1-compact-rws',
+    towerRiseM: 0.08,
+    caliberMm: 12.7,
+    visibleFeedBelt: true,
+    integratedSensorHead: false,
+    turretOwned: true,
+  });
+  assert.deepEqual(turret.userData.pumaS1MellsLauncherReceipt, {
+    architecture: 'twin-square-armored-cells-v1',
+    launchCells: 2,
+    circularLaunchTubes: 0,
+    mountSide: 'vehicle-left',
+    turretOwned: true,
+  }, 'Puma S1 MELLS launcher uses two square armored cells and no circular tubes');
+  assert.equal(new Box3().setFromObject(roofOptics).intersectsBox(
+    new Box3().setFromObject(roofRws)), false,
+  'Puma panoramic and machine-gun towers have physically separate envelopes');
+  const gear = hull.userData.runningGearReceipts?.at(-1);
+  assert.equal(gear?.wheelZs.length, 6, 'six road wheels are authored per side');
+  assert.equal(gear?.xcLeft, 1.47, 'left Puma track lane is tucked beneath the attached skirt');
+  assert.equal(gear?.xcRight, 1.47, 'right Puma track lane is tucked beneath the attached skirt');
+  assert.equal(gear?.trackW, 0.56, 'S1 native course is slightly widened under the new skirts');
+  assert.equal(gear?.trackPatternId, 'compact-ifv',
+    'S1 uses its unique fine-rib heavy IFV shoe construction');
+  assert.equal(hull.userData.pumaS1Receipt.rearTrackDepartureZM, -2.37,
+    'Puma rear track departure is seated under the aft road-wheel quadrant');
+  const rearRoadWheelZ = Math.min(...gear.wheelZs);
+  const lowerCourse = gear.loopPoints.filter(([, y]) => Math.abs(y - gear.botY) < 1e-6);
+  const rearGroundJointZ = Math.min(...lowerCourse.map(([z]) => z));
+  assert.ok(Math.abs(rearGroundJointZ - (-2.37)) < 0.01,
+    `Puma loaded course joins its rear rise at -2.37 m (${rearGroundJointZ})`);
+  assert.ok(Math.abs((rearRoadWheelZ - rearGroundJointZ) - gear.wheelR * 0.5) < 0.01,
+    'Puma loaded course begins rising at the aft road-wheel quadrant');
+  assert.ok(gear?.loopPoints.some(([z]) => z > 3.48) && gear?.loopPoints.some(([z]) => z < -3.42),
+    'S1 track course reaches both full-length hull shoulders');
+  assert.equal(gear?.suspensionDynamic, true, 'S1 road wheels retain dynamic suspension arms');
+  assert.equal(hull.userData.runningGearUnitCount, 1,
+    'S1 owns one canonical animated running-gear course');
+  assert.equal(tank.root.getObjectByName('gearTrackPads')?.userData.trackShoeDetailMode,
+    'family-integrated', 'S1 uses the canonical detailed shoe course');
+  assert.ok(gun.getObjectByName('gunMount'),
+    'Puma S1 carries a camouflaged open gun cradle');
+  assert.ok(gun.getObjectByName('gunMountDark'),
+    'Puma S1 retains its dark trunnion inside the painted cradle');
+  assert.deepEqual(gun.userData.pumaS1OpenGunCradleReceipt, {
+    architecture: 'hollow-trapezoid-slash-port-cradle-v3',
+    movingWithGun: true,
+    verticalOffsetM: -0.13,
+    scaleFromInitialCompactEnvelope: 0.70,
+    lengthM: 1.232,
+    diagonalSidePortsPerSide: 4,
+    topBottomSkins: true,
+    sideSkinPanelsPerSide: 7,
+    openFrontRear: true,
+    surroundsMainBarrel: true,
+    surroundsCoax: true,
+  }, 'Puma S1 uses a compact hollow trapezoid cradle with four raked side ports');
+  assert.ok(tank.root.getObjectByName('muzzleBoreShadowFallbackRim'),
+    'MK30 carries a real recessed muzzle bore');
+} finally {
+  tank.dispose();
+}
+
+console.log('pumaS1 selftest passed');
