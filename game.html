@@ -10,6 +10,17 @@
     html,body {margin:0;padding:0;width:var(--cot-viewport-width,100dvw);height:var(--cot-viewport-height,100dvh);overflow:hidden;background:#080f11;touch-action:manipulation}
     /* CoTFly owns trial completion; the battle uses the complete native HUD. */
     .cot-end {display:none!important}
+    /* A console pane can be narrow without being a phone. Keep its full
+       instrumentation in compact side lanes above the ammunition tray. */
+    @media (min-width:460px) and (max-width:700px) and (min-height:350px) {
+      body:not(.cot-touch-layout) .cot-hud .cot-ear {display:flex!important;width:150px!important;top:68px!important;transform:scale(.75);transform-origin:top left}
+      body:not(.cot-touch-layout) .cot-hud .cot-ear.r {transform-origin:top right}
+      body:not(.cot-touch-layout) .cot-hud .cot-er {padding:2px 5px!important}
+      body:not(.cot-touch-layout) .cot-hud .cot-dp {bottom:68px!important;transform:scale(.65)!important;transform-origin:bottom left}
+      body:not(.cot-touch-layout) .cot-hud .cot-dp canvas {display:block!important}
+      body:not(.cot-touch-layout) .cot-hud .cot-drive {left:120px!important;bottom:68px!important;transform:scale(.65)!important;transform-origin:bottom left}
+      body:not(.cot-touch-layout) .cot-hud .cot-minimap {left:auto!important;right:8px!important;top:auto!important;bottom:68px!important}
+    }
     #app {position:fixed;inset:0} #app canvas {display:block;width:100%;height:100%}
   </style>
   <script>
