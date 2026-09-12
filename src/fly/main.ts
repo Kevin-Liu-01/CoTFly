@@ -40,6 +40,8 @@ const command = (type: string, payload: object = {}) =>
   );
 const label = (id: string, text: string) => {
   $(id).querySelector("span")!.textContent = text;
+  $(id).setAttribute("aria-label", text);
+  $(id).title = text;
 };
 function showPanel(panel: string) {
   document.body.dataset.panel = panel;

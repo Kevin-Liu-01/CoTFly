@@ -1,10 +1,10 @@
 # CoTFly
 
-A separate `/fly` page pairs an original procedural fruit fly and miniature armored cockpit with the actual Claude of Tanks solo game in a same-origin iframe. The intended host is `fly.kevinliu.studio`.
+The standalone CoTFly root console pairs an original procedural fruit fly and miniature armored cockpit with the actual Claude of Tanks solo game in a same-origin iframe. The intended host is `fly.kevinliu.studio`.
 
 ## Run and publish
 
-Install with `npm ci`, run `npx vite --host 127.0.0.1 --port 5193`, and open `/fly`. `npm run build` includes `fly.html`. The standalone CoTFly Vercel configuration rewrites `/` to `/fly.html` on every deployment; the iframe explicitly uses `/game.html`. The production domain is `fly.kevinliu.studio`.
+Install with `npm ci`, run `npx vite --host 127.0.0.1 --port 5193`, and open `/`. `npm run build` includes `index.html`. The console builds directly as `index.html`, with legacy `/fly` links redirected to `/`; the iframe explicitly uses `/game.html`. The production domain is `fly.kevinliu.studio`.
 
 ## Cockpit and game controls
 

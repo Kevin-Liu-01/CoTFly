@@ -15,7 +15,7 @@ npm ci
 npm run dev
 ```
 
-Open the printed local URL. Both `/` and `/fly` open CoTFly. The embedded game uses `/game.html?fly-agent=1&nosplash=1` on the same origin.
+Open the printed local URL. `/` opens CoTFly; legacy `/fly` links redirect to `/`. The embedded game uses `/game.html?fly-agent=1&nosplash=1` on the same origin.
 
 ```sh
 npm run test:fly

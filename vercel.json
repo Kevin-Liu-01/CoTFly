@@ -27,6 +27,21 @@
       "source": "/cn/surface-studio",
       "destination": "/cn/gallery?layer=markup",
       "permanent": true
+    },
+    {
+      "source": "/fly",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/fly/",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/fly.html",
+      "destination": "/",
+      "permanent": true
     }
   ],
   "headers": [
@@ -68,18 +83,6 @@
     }
   ],
   "rewrites": [
-    {
-      "source": "/",
-      "destination": "/fly.html"
-    },
-    {
-      "source": "/fly",
-      "destination": "/fly.html"
-    },
-    {
-      "source": "/fly/",
-      "destination": "/fly.html"
-    },
     {
       "source": "/cn",
       "destination": "/cn/index.html"

@@ -24,12 +24,19 @@ export function createBrainView(
   scene.add(group);
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 30);
   camera.position.set(0, 0.1, 5.8);
+  const center = new THREE.Vector3();
   const transform = (p: number[]) =>
     new THREE.Vector3(
       (p[0]! - 52000) / 18000,
       -(p[2]! - 26500) / 18000,
       (p[1]! - 28000) / 18000,
-    );
+    ).sub(center);
+  const bounds = new THREE.Box3();
+  // Frame the simulated circuit; surrounding anatomy remains a dim backdrop.
+  for (const cell of anatomy.neurites) for (const p of cell) bounds.expandByPoint(transform(p));
+  const extent = bounds.getSize(new THREE.Vector3());
+  bounds.getCenter(center);
+  let fitDistance = 5.8;
   const positions = CELLS.map((n) => transform(n.position));
   function points(pts: THREE.Vector3[], material: THREE.PointsMaterial) {
     const geo = new THREE.BufferGeometry().setFromPoints(pts);
@@ -37,13 +44,13 @@ export function createBrainView(
     group.add(mesh);
     return mesh;
   }
-  points(
+  const context = points(
     anatomy.context.map(transform),
     new THREE.PointsMaterial({
-      color: "#557b8b",
-      size: 0.011,
+      color: "#779c98",
+      size: 0.009,
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.22,
       depthWrite: false,
     }),
   );
@@ -60,11 +67,11 @@ export function createBrainView(
     fiberPoints,
     new THREE.PointsMaterial({
       vertexColors: true,
-      size: 0.012,
+      size: 0.01,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.5,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
     }),
   );
   fibers.geometry.setAttribute(
@@ -80,7 +87,7 @@ export function createBrainView(
     positions,
     new THREE.PointsMaterial({
       vertexColors: true,
-      size: 0.047,
+      size: 0.034,
       transparent: true,
       depthWrite: false,
     }),
@@ -99,9 +106,9 @@ export function createBrainView(
       new THREE.Float32BufferAttribute(linkPositions, 3),
     ),
     new THREE.LineBasicMaterial({
-      color: "#9cb4d0",
+      color: "#9ab5a5",
       transparent: true,
-      opacity: 0.028,
+      opacity: 0.025,
       depthWrite: false,
     }),
   );
@@ -109,7 +116,7 @@ export function createBrainView(
   const marker = new THREE.Mesh(
     new THREE.SphereGeometry(0.065, 12, 8),
     new THREE.MeshBasicMaterial({
-      color: "#ffffff",
+      color: "#e9d69d",
       wireframe: true,
       transparent: true,
       opacity: 0.8,
@@ -148,6 +155,10 @@ export function createBrainView(
     $("neuron-description").textContent = active
       ? `${(data.voltage[selected] ?? -65).toFixed(1)} mV · ${data.spikes[selected] ?? 0} spikes · ${connectionCounts[selected]} links`
       : "Live firing cells will appear here.";
+    $("cell-voltage").textContent = (data.voltage[selected] ?? -65).toFixed(1);
+    $("cell-spikes").textContent = (data.spikes[selected] ?? 0).toLocaleString();
+    $("cell-links").textContent = active ? String(connectionCounts[selected]) : "—";
+    $("active-count").textContent = String(data.rates.reduce((count, rate) => count + Number(rate >= 1), 0));
     $("brain-output").textContent = `${Math.round(data.output * 100)}%`;
     marker.position.copy(positions[selected]!);
     picker.value = followActivity ? "auto" : String(selected);
@@ -155,7 +166,7 @@ export function createBrainView(
   }
   const autoOption = document.createElement("option");
   autoOption.value = "auto";
-  autoOption.textContent = "AUTO · Most active";
+  autoOption.textContent = "Follow most active";
   picker.append(autoOption);
   function refreshActive(time: number, force = false) {
     const silent = (data.rates[selected] ?? 0) < 1;
@@ -181,7 +192,7 @@ export function createBrainView(
       return option;
     });
     autoOption.textContent = active.length
-      ? "AUTO · Most active"
+      ? "Follow most active"
       : "Waiting for activity";
     picker.replaceChildren(autoOption, ...options);
     picker.value = followActivity ? "auto" : String(selected);
@@ -247,8 +258,8 @@ export function createBrainView(
     e.preventDefault();
     camera.position.z = THREE.MathUtils.clamp(
       camera.position.z + e.deltaY * 0.003,
-      3.2,
-      9,
+      fitDistance * 0.55,
+      fitDistance * 1.8,
     );
     dirty = true;
   };
@@ -268,6 +279,19 @@ export function createBrainView(
   canvas.addEventListener("pointercancel", up);
   canvas.addEventListener("wheel", wheel, { passive: false });
   canvas.addEventListener("keydown", key);
+  const resetView = () => {
+    group.rotation.set(0, 0, 0);
+    camera.position.set(0, 0, fitDistance);
+    camera.lookAt(0, 0, 0);
+    dirty = true;
+  };
+  const toggleContext = () => {
+    context.visible = !context.visible;
+    $("brain-context").setAttribute("aria-pressed", String(context.visible));
+    dirty = true;
+  };
+  $("brain-reset").addEventListener("click", resetView);
+  $("brain-context").addEventListener("click", toggleContext);
   let resizeFrame = 0;
   const resize = new ResizeObserver(() => {
     cancelAnimationFrame(resizeFrame);
@@ -278,7 +302,10 @@ export function createBrainView(
       if (!surfaceVisible) return;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
-      camera.position.z = Math.max(5.8, 5.8 / camera.aspect);
+      fitDistance = Math.max(extent.y, extent.x / camera.aspect) /
+        (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.2 + extent.z * 0.35;
+      camera.position.set(0, 0, fitDistance);
+      camera.lookAt(0, 0, 0);
       camera.updateProjectionMatrix();
       dirty = true;
     });
@@ -301,12 +328,12 @@ export function createBrainView(
         const spike = (data.spikes[i] ?? 0) > previous[i]!;
         bursts[i] = spike ? 1 : bursts[i]! * 0.72;
         color
-          .set(CELLS[i]!.group === "mAL" ? "#9c9bff" : "#ffbf59")
-          .multiplyScalar(0.38 + bursts[i]! * 0.9);
+          .set(CELLS[i]!.group === "mAL" ? "#93afe1" : "#e9bb6c")
+          .multiplyScalar(0.55 + bursts[i]! * 0.45);
         colors[i * 3] = color.r;
         colors[i * 3 + 1] = color.g;
         colors[i * 3 + 2] = color.b;
-        const brightness = 0.1 + bursts[i]! * 0.55;
+        const brightness = 0.24 + bursts[i]! * 0.66;
         for (let j = fiberOffsets[i]!; j < fiberOffsets[i + 1]!; j++) {
           fiberColors[j * 3] = color.r * brightness;
           fiberColors[j * 3 + 1] = color.g * brightness;
@@ -319,11 +346,11 @@ export function createBrainView(
       if (bin > lastTime) {
         const shift = Math.min(180, bin - lastTime);
         ctx.drawImage(historyCanvas, -shift, 0);
-        ctx.fillStyle = "#0b131c";
+        ctx.fillStyle = "#09170f";
         ctx.fillRect(180 - shift, 0, shift, CELLS.length);
         for (let i = 0; i < CELLS.length; i++)
           if ((data.spikes[i] ?? 0) > previous[i]!) {
-            ctx.fillStyle = CELLS[i]!.group === "mAL" ? "#aaa4ff" : "#f6b44d";
+            ctx.fillStyle = CELLS[i]!.group === "mAL" ? "#8199bd" : "#bda365";
             ctx.fillRect(179, i, 1, 1);
           }
         for (let i = 0; i < CELLS.length; i++)
@@ -354,6 +381,8 @@ export function createBrainView(
       resize.disconnect();
       cancelAnimationFrame(resizeFrame);
       picker.removeEventListener("change", select);
+      $("brain-reset").removeEventListener("click", resetView);
+      $("brain-context").removeEventListener("click", toggleContext);
       canvas.removeEventListener("pointerdown", down);
       canvas.removeEventListener("pointermove", move);
       canvas.removeEventListener("pointerup", up);

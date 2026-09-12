@@ -32,18 +32,18 @@ export function createSpecimen(
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
-  renderer.setClearColor(0x111a24);
+  renderer.setClearColor(0x101c18);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.2;
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x111a24, 11, 22);
+  scene.fog = new THREE.Fog(0x101c18, 11, 22);
   const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 40);
   const side = new THREE.Vector3(2.5, 2.2, 4.2),
     top = new THREE.Vector3(0.01, 8.4, 0.2);
   const cameraTarget = side.clone();
   let dirtyFrames = 24;
   camera.position.copy(side);
-  camera.lookAt(0, 0.4, 0.55);
+  camera.lookAt(0, 0.55, 0.55);
   scene.add(new THREE.HemisphereLight(0xfff8e4, 0x6c735c, 3));
   const sun = new THREE.DirectionalLight(0xfff4db, 4.2);
   sun.position.set(-3, 7, 5);
@@ -115,7 +115,7 @@ export function createSpecimen(
   }
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(200, 200),
-    mat(0x111a24, 0.9),
+    mat(0x101c18, 0.9),
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -2.94;
@@ -384,7 +384,7 @@ export function createSpecimen(
     const ctx = label.getContext("2d")!;
     ctx.clearRect(0, 0, 256, 64);
     ctx.fillStyle = "#b6cbd9";
-    ctx.font = "bold 27px monospace";
+    ctx.font = "bold 27px Monument, Arial, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(text, 128, 42);
     const texture = new THREE.CanvasTexture(label);
@@ -559,7 +559,7 @@ export function createSpecimen(
       c.stroke();
     }
     c.fillStyle = "#a2cf9b";
-    c.font = "bold 24px monospace";
+    c.font = "bold 24px Monument, Arial, sans-serif";
     c.fillText("COMMANDER  /  FLY-01", 20, 31);
     for (const [x, value, caption] of [
       [103, Math.abs(signals.speed ?? 0) / 60, "KM/H"],
@@ -577,7 +577,7 @@ export function createSpecimen(
       c.lineTo(x + Math.cos(a) * 58, 144 + Math.sin(a) * 58);
       c.stroke();
       c.fillStyle = "#b9dab1";
-      c.font = "20px monospace";
+      c.font = "20px Monument, Arial, sans-serif";
       c.fillText(caption, x - 30, 236);
     }
     c.strokeStyle = "#71946d";
@@ -603,7 +603,7 @@ export function createSpecimen(
         7,
       );
     }
-    c.font = "18px monospace";
+    c.font = "18px Monument, Arial, sans-serif";
     c.fillStyle = "#b9dab1";
     c.fillText(signals.active ? "TRACK" : "STBY", 696, 73);
     c.fillText((signals.reload ?? 0) > 0 ? "LOAD" : "READY", 690, 135);
@@ -666,6 +666,7 @@ export function createSpecimen(
       dirtyFrames = 24;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
+      camera.fov = camera.aspect > 2.3 ? 26 : 34;
       camera.updateProjectionMatrix();
     });
   });
@@ -781,7 +782,7 @@ export function createSpecimen(
     }
     stick.rotation.z = (signals.look ?? 0) * 0.4;
     camera.position.lerp(cameraTarget, 1 - Math.exp(-dt * 12));
-    camera.lookAt(0, 0.4, 0.55);
+    camera.lookAt(0, 0.55, 0.55);
     renderer.render(scene, camera);
   }
   frame = requestAnimationFrame(animate);

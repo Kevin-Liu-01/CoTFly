@@ -1,904 +1,447 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <!-- MOBILE-UX r1: pinch must never zoom the PAGE (pinch-out is the scope
-       gesture in battle — touchControls.js). maximum-scale/user-scalable stop
-       spec-compliant mobile browsers; iOS Safari ignores user-scalable, so
-       touchControls.js also cancels its non-standard gesture* pinch events.
-       viewport-fit=cover exposes env(safe-area-inset-*) on notched phones —
-       the touch HUD keeps its controls off the notch/home bar with them. -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>Claude of Tanks — Free Browser Tank Game | {{COT_PRODUCTION_VEHICLES}} Tanks, {{COT_BATTLEFIELDS}} Battlefields</title>
-  <meta name="author" content="Kevin B. Liu" />
-  <meta name="copyright" content="Copyright © 2026 Kevin B. Liu" />
-  <!-- SEO/AEO: factual public-build metadata. Keep counts aligned with the
-       production roster and map registry; never add ratings or claims that
-       the visible product cannot substantiate. -->
-  <meta name="description" content="Claude of Tanks is a free browser-native armored warfare game with {{COT_PRODUCTION_VEHICLES}} production vehicles, {{COT_BATTLEFIELDS}} battlefields, bot and multiplayer battles, X-ray killcams, and a cinematic scene studio — pure Three.js, no install, no account." />
-  <meta name="application-name" content="Claude of Tanks" />
-  <meta name="application-version" content="{{COT_APP_VERSION}}" />
-  <link rel="canonical" href="https://cot.kevinliu.studio/" />
-  <link rel="describedby" href="/llms.txt" type="text/plain" />
-  <link rel="manifest" href="/site.webmanifest" />
-  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
-  <meta name="theme-color" content="#05080b" />
-  <meta property="og:site_name" content="Claude of Tanks" />
-  <meta property="og:title" content="Claude of Tanks — Free Browser Tank Game" />
-  <meta property="og:description" content="Free-roam armored warfare in the browser — {{COT_PRODUCTION_VEHICLES}} production vehicles, {{COT_BATTLEFIELDS}} battlefields, bot and multiplayer battles, killcam X-rays. Pure Three.js, no install." />
-  <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://cot.kevinliu.studio/" />
-  <meta property="og:locale" content="en_US" />
-  <meta property="og:image" content="https://cot.kevinliu.studio/brand/og-image.png" />
-  <meta property="og:image:width" content="1200" />
-  <meta property="og:image:height" content="630" />
-  <meta property="og:image:type" content="image/png" />
-  <meta property="og:image:alt" content="Claude of Tanks — in-engine battle still with the crest wordmark" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Claude of Tanks — Free Browser Tank Game" />
-  <meta name="twitter:description" content="{{COT_PRODUCTION_VEHICLES}} production vehicles, {{COT_BATTLEFIELDS}} battlefields, bot and multiplayer battles — armored warfare rendered live in your browser. No install, no account." />
-  <meta name="twitter:image" content="https://cot.kevinliu.studio/brand/og-image.png" />
-  <meta name="twitter:image:alt" content="Claude of Tanks — in-engine battle still with the crest wordmark" />
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@graph": [
-      {
-        "@type": "Person",
-        "@id": "https://cot.kevinliu.studio/#creator",
-        "name": "Kevin B. Liu",
-        "url": "https://github.com/Kevin-Liu-01"
-      },
-      {
-        "@type": "WebSite",
-        "@id": "https://cot.kevinliu.studio/#website",
-        "name": "Claude of Tanks",
-        "url": "https://cot.kevinliu.studio/",
-        "description": "Official website, playable browser game, Tank Gallery, Scene Studio, and technical documentation for Claude of Tanks.",
-        "inLanguage": "en-US",
-        "publisher": { "@id": "https://cot.kevinliu.studio/#creator" }
-      },
-      {
-        "@type": "VideoGame",
-        "@id": "https://cot.kevinliu.studio/#game",
-        "name": "Claude of Tanks",
-        "url": "https://cot.kevinliu.studio/",
-        "mainEntityOfPage": { "@id": "https://cot.kevinliu.studio/#website" },
-        "creator": { "@id": "https://cot.kevinliu.studio/#creator" },
-        "copyrightHolder": { "@id": "https://cot.kevinliu.studio/#creator" },
-        "image": "https://cot.kevinliu.studio/brand/og-image.png",
-        "description": "Free browser-native armored warfare with {{COT_PRODUCTION_VEHICLES}} production vehicles, {{COT_BATTLEFIELDS}} authored battlefields, bot and multiplayer battles, physical armor and ballistics, X-ray killcams, and an in-browser scene studio.",
-        "genre": ["Vehicular combat", "Simulation", "Action"],
-        "playMode": ["SinglePlayer", "MultiPlayer"],
-        "gamePlatform": "Web Browser",
-        "applicationCategory": "GameApplication",
-        "operatingSystem": "Any modern operating system with a WebGL2-capable browser",
-        "isAccessibleForFree": true,
-        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD", "availability": "https://schema.org/InStock" },
-        "screenshot": [
-          "https://cot.kevinliu.studio/media/featured/f7_studio_t90_column_fire.webp",
-          "https://cot.kevinliu.studio/media/featured/f6_studio_strv_steinburg_duel.webp",
-          "https://cot.kevinliu.studio/media/featured/f9_studio_fjord_firefight.webp",
-          "https://cot.kevinliu.studio/media/featured/f10_studio_urban_crossfire.webp"
-        ]
-      }
-    ]
-  }
-  </script>
-  <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg" />
-  <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/brand/favicon-192.png" />
-  <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
-  <!-- BOOT SCREEN: the wordmark weights are on the critical paint path, so they
-       are preloaded ahead of the module graph (the splash markup below is inline
-       for exactly the same reason — first paint must not wait on /src/main.ts). -->
-  <link rel="preload" href="/fonts/abc-monument-grotesk/ABCMonumentGrotesk-Medium.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="/fonts/abc-monument-grotesk/ABCMonumentGrotesk-Bold.woff2" as="font" type="font/woff2" crossorigin />
-  <script>
-    // iOS third-party browsers can expose a layout viewport that is taller or
-    // shorter than the actually visible page. Seed the real visual dimensions
-    // before first paint; responsiveLayout.ts keeps these values live once the
-    // application module has loaded.
-    (() => {
-      const viewport = window.visualViewport;
-      const root = document.documentElement;
-      const width = Math.max(1, Math.round(viewport?.width || window.innerWidth || 1));
-      const height = Math.max(1, Math.round(viewport?.height || window.innerHeight || 1));
-      root.style.setProperty('--cot-viewport-width', `${width}px`);
-      root.style.setProperty('--cot-viewport-height', `${height}px`);
-    })();
-  </script>
-  <script type="module" src="/src/ui/localeBootstrap.ts"></script>
-  <link rel="stylesheet" href="/src/presentation/mediaArchive.css" />
-  <style>
-    :root {
-      /* One raster-quality contract for every DOM HUD mounted by the game.
-         Most panels are composited translucent layers, where browser defaults
-         can fall back to visibly coarse grayscale glyph edges. */
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-      text-rendering: optimizeLegibility;
-      font-kerning: normal;
-      font-synthesis: none;
-      /* Monument Grotesk ships static cuts (no opsz axis) — kept as a no-op
-         so any future variable face picks up optical sizing automatically. */
-      font-optical-sizing: auto;
-    }
-    html, body { margin: 0; padding: 0; width: var(--cot-viewport-width, 100dvw);
-      height: var(--cot-viewport-height, 100dvh); overflow: hidden; background: #05080b;
-      /* MOBILE-UX r1: no double-tap zoom anywhere (taps stay instant); menus
-         keep one-finger scrolling — their own overflow containers pan as
-         normal under touch-action: manipulation. */
-      touch-action: manipulation; }
-    body, button, input, select, textarea {
-      -webkit-font-smoothing: inherit;
-      text-rendering: optimizeLegibility;
-      font-kerning: inherit;
-      font-synthesis: none;
-      font-optical-sizing: auto;
-      /* type mandate: UI weight floor is 500 — nothing renders at book/regular */
-      font-weight: 500;
-    }
-    #app { width: var(--cot-viewport-width, 100dvw); height: var(--cot-viewport-height, 100dvh); }
-    canvas, img { image-rendering: auto; }
-    canvas { display: block; }
-    /* MOBILE-UX r1: the 3D surface is a gameplay surface on every screen
-       (battle swipe-aim, garage orbit drag) — never a browser pan/pinch
-       target. Menus/garage DOM keeps its own scrolling; this is canvas-only. */
-    #app canvas { touch-action: none; }
-    svg { shape-rendering: geometricPrecision; text-rendering: geometricPrecision; }
-
-    /* ---------------------------------------------------------------------
-       ENTRY / LOADING SCREEN (src/ui/bootScreen.ts drives the live parts).
-       Everything needed for the FIRST PAINT is inline here: the game used to
-       show a black screen for ~7.5 s while the vehicle textures and the 1 km
-       world baked. Now the branded splash paints from the HTML itself, before
-       a single module is fetched, and the bar below is driven by real load
-       stages (see bootScreen.ts / main.ts BOOT STAGES).
-       --------------------------------------------------------------------- */
-    /* ABC Monument Grotesk (Dinamo Typefaces — owner-provided cut, fonts r4
-       owner-directed swap replacing Inter; see docs/ATTRIBUTION.md). Three
-       static faces with weight RANGES so the existing hierarchy maps: 100-400
-       Regular, 500-600 Medium, 700-900 Bold (usage weight floor: 500). Keep
-       these three blocks in sync with src/ui/fonts.js FONT_CSS. */
-    @font-face { font-family: 'ABC Monument Grotesk';
-      src: url('/fonts/abc-monument-grotesk/ABCMonumentGrotesk-Regular.woff2') format('woff2');
-      font-weight: 100 400; font-style: normal; font-display: optional; }
-    @font-face { font-family: 'ABC Monument Grotesk';
-      src: url('/fonts/abc-monument-grotesk/ABCMonumentGrotesk-Medium.woff2') format('woff2');
-      font-weight: 500 600; font-style: normal; font-display: optional; }
-    @font-face { font-family: 'ABC Monument Grotesk';
-      src: url('/fonts/abc-monument-grotesk/ABCMonumentGrotesk-Bold.woff2') format('woff2');
-      font-weight: 700 900; font-style: normal; font-display: optional; }
-
-    #cot-boot {
-      position: fixed; inset: 0; width: var(--cot-viewport-width, 100dvw);
-      height: var(--cot-viewport-height, 100dvh); z-index: 200; overflow: hidden;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      font-family: 'ABC Monument Grotesk', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      color: #e6edf3; -webkit-user-select: none; user-select: none; cursor: default;
-      background:
-        radial-gradient(118% 82% at 50% 22%, #16202b 0%, #0b1117 42%, #05080b 78%),
-        #05080b;
-      opacity: 1; transition: opacity .5s ease;
-    }
-    #cot-boot.cot-boot-out { opacity: 0; pointer-events: none; }
-    /* The static gradient above is the stable first paint. Marketing stills
-       are decoded off-screen, installed at opacity 0, then promoted only
-       after two animation frames so their arrival is a real fade rather than
-       the old blue -> image flash. The splash chrome itself never replays. */
-    #cot-boot-hero { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
-    #cot-boot-hero .hly {
-      position: absolute; inset: -1px; width: calc(100% + 2px); height: calc(100% + 2px);
-      object-fit: cover; object-position: 50% 48%; opacity: 0;
-      transition: opacity 1.6s cubic-bezier(.22,1,.36,1);
-      will-change: opacity;
-    }
-    #cot-boot-hero .hly.on { opacity: 1; }
-    #cot-boot-hero::after {
-      content: ''; position: absolute; inset: 0;
-      background:
-        linear-gradient(180deg, rgba(5,8,11,.78) 0%, rgba(5,8,11,.44) 28%, rgba(5,8,11,.42) 58%, rgba(5,8,11,.86) 100%),
-        radial-gradient(120% 95% at 50% 34%, rgba(5,8,11,.08) 0%, rgba(5,8,11,.60) 88%);
-    }
-    #cot-boot::before {
-      content: ''; position: absolute; left: -10%; right: -10%; bottom: -8%; height: 62%; z-index: 1;
-      background: radial-gradient(60% 100% at 50% 100%, rgba(240,160,48,.20) 0%, rgba(240,160,48,.05) 45%, rgba(240,160,48,0) 72%);
-      pointer-events: none;
-    }
-    .cot-boot-inner { position: relative; z-index: 2; width: min(760px, 86vw); text-align: center; }
-
-    /* --- emblem + wordmark ------------------------------------------------ */
-    .cot-boot-mark { display: block; width: 120px; height: 120px; margin: 0 auto 20px; }
-    .cot-boot-word { line-height: .92; }
-    .cot-boot-word .l1 {
-      display: block; font-weight: 800; letter-spacing: .10em; text-indent: .10em;
-      font-size: clamp(34px, 6.4vw, 62px); color: #f2f7fb;
-      text-shadow: 0 2px 26px rgba(0,0,0,.75);
-    }
-    .cot-boot-word .l2 {
-      display: flex; align-items: center; justify-content: center; gap: 14px;
-      margin-top: 12px; font-family: 'ABC Monument Grotesk', 'Arial Narrow', Arial, sans-serif;
-      font-weight: 700; letter-spacing: .30em; text-indent: .30em;
-      font-size: clamp(14px, 2.05vw, 21px); color: #f0a030;
-    }
-    .cot-boot-word .l2 i { display: block; height: 1px; width: clamp(28px, 8vw, 92px);
-      background: linear-gradient(90deg, rgba(240,160,48,0), #f0a030); }
-    .cot-boot-word .l2 i + span + i { background: linear-gradient(270deg, rgba(240,160,48,0), #f0a030); }
-    .cot-boot-invite {
-      display: none; width: fit-content; max-width: min(560px, 84vw); margin: 25px auto -20px;
-      padding: 9px 15px; color: #fff0d2; border: 1px solid rgba(240,160,48,.48);
-      background: rgba(9,13,18,.72); box-shadow: 0 10px 34px rgba(0,0,0,.28);
-      font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
-    }
-    .cot-boot-invite.on { display: block; }
-    #cot-boot.has-invite .cot-boot-load { margin-top: 36px; }
-    /* Entrance motion is scoped to the class present in the inline first
-       paint. bootScreen.ts permanently retires that class after this stagger,
-       so image decode or later layout work cannot restart the animation. */
-    #cot-boot.cot-boot-enter .cot-boot-mark {
-      animation: cot-boot-pop .42s cubic-bezier(.16,1,.3,1) backwards;
-    }
-    #cot-boot.cot-boot-enter .cot-boot-word .l1 {
-      animation: cot-boot-rise .32s cubic-bezier(.16,1,.3,1) .04s backwards;
-    }
-    #cot-boot.cot-boot-enter .cot-boot-word .l2 {
-      animation: cot-boot-rise .32s cubic-bezier(.16,1,.3,1) .08s backwards;
-    }
-    #cot-boot.cot-boot-enter .cot-boot-invite {
-      animation: cot-boot-rise .26s cubic-bezier(.16,1,.3,1) .12s backwards;
-    }
-    @keyframes cot-boot-pop { from { opacity: 0; transform: scale(.94) translateY(6px); } }
-    @keyframes cot-boot-rise { from { opacity: 0; transform: translateY(8px); } }
-    @keyframes cot-boot-fade { from { opacity: 0; } }
-    /* --- progress ---------------------------------------------------------- */
-    .cot-boot-load { margin-top: 46px; }
-    #cot-boot.cot-boot-enter .cot-boot-load {
-      animation: cot-boot-rise .34s cubic-bezier(.16,1,.3,1) .14s backwards;
-    }
-    .cot-boot-meta {
-      display: flex; align-items: flex-end; justify-content: space-between; gap: 18px;
-      margin-bottom: 9px;
-      font-family: 'ABC Monument Grotesk', 'Arial Narrow', Arial, sans-serif;
-      font-variant-numeric: tabular-nums;
-    }
-    .cot-boot-stage {
-      font-size: 11px; font-weight: 700; letter-spacing: .26em; text-transform: uppercase;
-      color: #9fb0bf; text-align: left; min-height: 14px;
-    }
-    .cot-boot-pct { width: 64px; flex: 0 0 64px; font-size: 21px; font-weight: 700;
-      letter-spacing: .06em; color: #ffd27a; text-align: right; }
-    .cot-boot-bar {
-      position: relative; height: 6px; background: rgba(255,255,255,.07);
-      box-shadow: inset 0 0 0 1px rgba(146,164,180,.22);
-    }
-    .cot-boot-fill {
-      position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
-      background: linear-gradient(90deg, #b96f10 0%, #f0a030 62%, #ffcf7d 100%);
-      box-shadow: 0 0 16px rgba(240,160,48,.55);
-    }
-    /* travelling sheen — proves the loop is alive even inside a long stage */
-    .cot-boot-fill::after {
-      content: ''; position: absolute; inset: 0;
-      background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.34) 50%, rgba(255,255,255,0) 100%);
-      background-size: 42% 100%; background-repeat: no-repeat;
-      animation: cot-sheen 1.35s linear infinite;
-    }
-    @keyframes cot-sheen { from { background-position: -45% 0; } to { background-position: 145% 0; } }
-    .cot-boot-ticks {
-      display: flex; gap: 4px; min-height: 2px; margin-top: 10px;
-    }
-    .cot-boot-ticks span {
-      flex: 1 1 0; height: 2px; background: rgba(146,164,180,.18);
-      transition: background-color .19s ease, box-shadow .19s ease;
-    }
-    .cot-boot-ticks span.on { background: #f0a030; box-shadow: 0 0 8px rgba(240,160,48,.6); }
-
-    /* --- tips + gate ------------------------------------------------------- */
-    .cot-boot-tip {
-      box-sizing: border-box; height: 84px; margin-top: 34px; padding: 0 6%; overflow: hidden;
-      font-size: 13px; font-weight: 500; line-height: 1.55; color: #aebbc7;
-      opacity: 1; transition: opacity .19s cubic-bezier(.16,1,.3,1);
-    }
-    #cot-boot.cot-boot-enter .cot-boot-tip {
-      animation: cot-boot-rise .34s cubic-bezier(.16,1,.3,1) .18s backwards;
-    }
-    .cot-boot-tip.fade { opacity: 0; }
-    .cot-boot-tip b {
-      display: block; margin-bottom: 5px;
-      font-family: 'ABC Monument Grotesk', 'Arial Narrow', Arial, sans-serif;
-      font-size: 9.5px; font-weight: 700; letter-spacing: .3em; color: #f0a030;
-      text-transform: uppercase;
-    }
-    .cot-boot-links {
-      display: grid; grid-template-columns: repeat(2, 1fr); width: max-content;
-      gap: 10px; margin: 14px auto 0;
-    }
-    .cot-boot-link {
-      box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-      min-width: 118px; padding: 10px 15px; border: 1px solid rgba(159,176,191,.34);
-      background: rgba(6,10,14,.68); color: #c6d2dc; cursor: pointer;
-      font: 700 10px/1 'ABC Monument Grotesk', 'Arial Narrow', Arial, sans-serif;
-      letter-spacing: .18em; text-transform: uppercase; text-decoration: none;
-      transition: transform .14s cubic-bezier(.16,1,.3,1), border-color .14s ease,
-        color .14s ease, background-color .14s ease, box-shadow .14s ease;
-    }
-    .cot-boot-links > .cot-boot-link {
-      width: auto; min-width: 0; height: 38px; padding: 0 16px;
-    }
-    #cot-boot.cot-boot-enter .cot-boot-links > .cot-boot-link {
-      animation: cot-boot-rise .26s cubic-bezier(.16,1,.3,1) backwards;
-    }
-    #cot-boot.cot-boot-enter .cot-boot-links > .cot-boot-link:first-child { animation-delay: .20s; }
-    #cot-boot.cot-boot-enter .cot-boot-links > .cot-boot-link:last-child { animation-delay: .24s; }
-    .cot-boot-link-icon {
-      width: 15px; height: 15px; flex: 0 0 15px; fill: none; stroke: currentColor;
-      stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
-      transition: transform .14s cubic-bezier(.16,1,.3,1);
-    }
-    .cot-boot-link-icon.github { fill: currentColor; stroke: none; }
-    .cot-github-stars {
-      display: inline-flex; align-items: center; gap: 3px; padding-left: 7px;
-      border-left: 1px solid rgba(159,176,191,.32); color: #f0b04a;
-      font-variant-numeric: tabular-nums; letter-spacing: .04em;
-    }
-    .cot-github-stars svg { width: 9px; height: 9px; fill: currentColor; stroke: none; }
-    .cot-github-stars [data-github-stars] {
-      display: inline-grid; min-width: 4ch; min-height: 1em; place-items: center; line-height: 1;
-    }
-    .cot-github-stars [data-github-stars][data-github-stars-state='loading']::before {
-      width: 7px; height: 7px; box-sizing: border-box; border: 1px solid currentColor;
-      border-right-color: transparent; border-radius: 50%; content: '';
-      animation: cot-github-star-spin .7s linear infinite;
-    }
-    .cot-github-stars [data-github-stars][data-github-stars-state='unavailable']::before {
-      content: '\2014'; opacity: .48;
-    }
-    @keyframes cot-github-star-spin { to { transform: rotate(1turn); } }
-    .cot-boot-link:hover {
-      transform: translateY(-2px); border-color: #f0a030; color: #ffe4b0;
-      background: rgba(33,24,12,.78); box-shadow: 0 8px 20px rgba(0,0,0,.30);
-    }
-    .cot-boot-link:hover .cot-boot-link-icon { transform: scale(1.1); }
-    .cot-boot-link:active { transform: translateY(0); box-shadow: none; transition-duration: .06s; }
-    .cot-boot-link:focus-visible { outline: 2px solid #f0a030; outline-offset: 3px; }
-    body[data-cot-width-density='narrow'] .cot-boot-links { gap: 8px; }
-    body[data-cot-width-density='narrow'] .cot-boot-links > .cot-boot-link { padding-inline: 6px; }
-    @media (prefers-reduced-motion: reduce) {
-      #cot-boot-hero .hly { transition-duration: .01ms; }
-      #cot-boot.cot-boot-enter .cot-boot-mark,
-      #cot-boot.cot-boot-enter .cot-boot-word .l1,
-      #cot-boot.cot-boot-enter .cot-boot-word .l2,
-      #cot-boot.cot-boot-enter .cot-boot-invite,
-      #cot-boot.cot-boot-enter .cot-boot-load,
-      #cot-boot.cot-boot-enter .cot-boot-tip,
-      #cot-boot.cot-boot-enter .cot-boot-links > .cot-boot-link,
-      #cot-boot.cot-boot-enter .cot-boot-foot { animation: none; }
-      .cot-boot-link, .cot-boot-link-icon { transition: none; }
-      .cot-boot-link:hover, .cot-boot-link:hover .cot-boot-link-icon,
-      .cot-boot-link:active { transform: none; }
-      .cot-github-stars [data-github-stars][data-github-stars-state='loading']::before { animation: none; }
-    }
-    .cot-credits {
-      width: min(700px, calc(100vw - 32px)); padding: 0; border: 1px solid #4a5966;
-      color: #e6edf3; background: #080d12; box-shadow: 0 28px 90px rgba(0,0,0,.75);
-      font-family: 'ABC Monument Grotesk', 'Segoe UI', sans-serif;
-    }
-    .cot-credits::backdrop { background: rgba(2,4,7,.84); backdrop-filter: blur(7px); }
-    .cot-credits-grid { display: grid; grid-template-columns: 190px 1fr; min-height: 300px; }
-    .cot-credits-portrait { width: 100%; height: 100%; min-height: 300px; padding: 28px; object-fit: contain; object-position: center; background: radial-gradient(circle at 50% 42%,#182536 0,#0b1119 72%); }
-    .cot-credits-copy { position: relative; padding: 34px 36px 30px; text-align: left; }
-    .cot-credits-kicker { color: #f0a030; font-size: 9px; font-weight: 800; letter-spacing: .26em; text-transform: uppercase; }
-    .cot-credits h2 { margin: 9px 0 13px; font-size: 28px; line-height: 1; }
-    .cot-credits p { margin: 0 0 13px; color: #aebbc7; font-size: 13px; line-height: 1.62; }
-    .cot-credits-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 22px; }
-    .cot-credits-close { position: absolute; top: 15px; right: 17px; border: 0; background: transparent; color: #aebbc7; cursor: pointer; font-size: 24px; line-height: 1; }
-    :where(body[data-cot-width='compact'],body[data-cot-width='phone']) .cot-credits-grid{grid-template-columns:1fr}
-    :where(body[data-cot-width='compact'],body[data-cot-width='phone']) .cot-credits-portrait{height:150px;min-height:150px;padding:16px;object-position:center}
-    :where(body[data-cot-width='compact'],body[data-cot-width='phone']) .cot-credits-copy{padding:27px 24px}
-    :where(body[data-cot-width='compact'],body[data-cot-width='phone']) .cot-credits h2{font-size:24px}
-    .cot-boot-gate {
-      margin-top: 26px; height: 22px;
-      font-family: 'ABC Monument Grotesk', 'Arial Narrow', Arial, sans-serif;
-      font-size: 12.5px; font-weight: 700; letter-spacing: .28em; text-indent: .28em;
-      color: #ffe4b0; text-transform: uppercase; opacity: 0;
-      transition: opacity .19s cubic-bezier(.16,1,.3,1);
-    }
-    .cot-boot-gate.on { opacity: 1; animation: cot-gate 1.5s ease-in-out infinite; }
-    .cot-boot-retry {
-      display: none; margin: 18px auto 0; padding: 11px 18px;
-      border: 1px solid rgba(240,160,48,.72); border-radius: 2px;
-      background: rgba(8,13,18,.78); color: #ffe4b0; cursor: pointer;
-      font: 700 11px/1 'ABC Monument Grotesk', 'Arial Narrow', Arial, sans-serif;
-      letter-spacing: .20em; text-transform: uppercase;
-    }
-    .cot-boot-retry.on { display: block; }
-    .cot-boot-retry:focus-visible { outline: 2px solid #f0a030; outline-offset: 3px; }
-    @keyframes cot-gate { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
-    .cot-boot-foot {
-      position: absolute; left: 0; right: 0; bottom: 20px; z-index: 2;
-      font-family: 'ABC Monument Grotesk', 'Arial Narrow', Arial, sans-serif;
-      font-size: 9px; font-weight: 600; letter-spacing: .26em; color: #4b5865;
-      text-transform: uppercase; text-align: center;
-    }
-    #cot-boot.cot-boot-enter .cot-boot-foot {
-      animation: cot-boot-fade .42s cubic-bezier(.16,1,.3,1) .18s backwards;
-    }
-    :where(body[data-cot-width='compact'],body[data-cot-width='phone']) .cot-boot-mark { width: 92px; height: 92px; }
-    :where(body[data-cot-width='compact'],body[data-cot-width='phone']) .cot-boot-load { margin-top: 32px; }
-    :where(body[data-cot-width='compact'],body[data-cot-width='phone']) .cot-boot-tip { height: 144px; }
-  </style>
-  <script>
-    // CHUNK RECOVERY r3: production sessions are deployment-pinned by routing
-    // middleware, but a missing/obsolete pin can leave an old document asking
-    // the current deployment for a removed lazy hash. Weak/mobile browsers can
-    // also abort a large module fetch. Keep the rejected import rejected so its
-    // real cause is observable, recover the document at most twice, then expose
-    // an honest retry instead of entering a refresh loop.
-    (() => {
-      const KEY = 'cot.bootRecovery.v1';
-      const MAX_AUTO_RELOADS = 2;
-      // A first visit may spend tens of seconds downloading/evaluating the
-      // initial graph or compiling shaders on an old mobile GPU. A short
-      // watchdog used to reload healthy work at 20/45 s, making the second
-      // visit look "fixed" only because browser/driver caches were warm.
-      // Notices stay early and non-blocking; automatic recovery is reserved
-      // for a genuinely inactive, foreground, online document.
-      const WATCHDOG_NOTICE_MS = 30000;
-      const WATCHDOG_RECOVER_MS = 60000;
-      // Every chunked GPU warm now pulses this watchdog between real batches,
-      // so a stage that is merely slow keeps its document while a promise,
-      // driver submission, or missing resource that makes no forward progress
-      // recovers substantially sooner.
-      const STAGE_NOTICE_MS = 8000;
-      const STAGE_RECOVER_MS = 20000;
-      const STABLE_READY_MS = 30000;
-      let navigating = false;
-      let recoveryScheduled = false;
-      let stageTimer = 0;
-      let stageRecoveryTimer = 0;
-      let deferredRecoveryReason = '';
-
-      function retryCountFromUrl() {
-        try {
-          const receipt = new URL(location.href).searchParams.get('_bootretry');
-          if (!receipt) return 0;
-          const count = Number.parseInt(receipt.split('-', 1)[0], 10);
-          return Number.isFinite(count) ? Math.max(1, Math.min(MAX_AUTO_RELOADS, count)) : 1;
-        }
-        catch (_) { return 0; }
-      }
-
-      function state() {
-        try {
-          const value = JSON.parse(sessionStorage.getItem(KEY) || 'null');
-          if (value && Date.now() - value.at < 15 * 60 * 1000) {
-            value.count = Math.max(Number(value.count) || 0, retryCountFromUrl());
-            return value;
-          }
-        } catch (_) { /* storage may be blocked */ }
-        return { count: retryCountFromUrl(), at: 0, reason: '' };
-      }
-
-      function remember(value) {
-        try { sessionStorage.setItem(KEY, JSON.stringify(value)); } catch (_) { /* ok */ }
-      }
-
-      function reload(reason) {
-        if (navigating) return;
-        navigating = true;
-        const prev = state();
-        const nextCount = Math.min(MAX_AUTO_RELOADS, prev.count + 1);
-        remember({ count: nextCount, at: Date.now(), reason });
-        const url = new URL(location.href);
-        // The count in the URL is the fail-safe when private browsing blocks
-        // sessionStorage. It must survive a second transient failure without
-        // ever permitting an infinite navigation loop.
-        url.searchParams.set('_bootretry', `${nextCount}-${Date.now().toString(36)}`);
-        // The one-shot middleware handshake expires a stale HttpOnly __vdpl
-        // cookie, redirects without this parameter, and lets Vercel select the
-        // newest document. A normal reload cannot repair that cookie itself.
-        url.searchParams.set('_dplreset', '1');
-        location.replace(url.href);
-      }
-
-      function showRetry(reason) {
-        if (navigating) return;
-        const stage = document.getElementById('cot-boot-stage');
-        let retry = document.getElementById('cot-boot-retry');
-        if (stage) stage.textContent = reason === 'timeout' || reason.startsWith('stall:')
-          ? 'Loading is taking longer than expected'
-          : 'A game file did not load';
-        // bootScreen removes its DOM after entry. A post-boot network failure
-        // still needs a visible recovery action if the one automatic reload
-        // has already been spent.
-        if (!retry && window.__GAME_READY) {
-          retry = document.createElement('button');
-          retry.id = 'cot-runtime-retry';
-          retry.textContent = 'A game file did not load — reload';
-          retry.style.cssText = 'position:fixed;z-index:10000;left:50%;bottom:24px;transform:translateX(-50%);padding:12px 18px;border:1px solid #f0a030;background:#0b1117;color:#ffe4b0;font:700 12px sans-serif;cursor:pointer';
-          document.body.appendChild(retry);
-        }
-        if (retry) {
-          retry.classList.add('on');
-          retry.onclick = () => reload(`manual:${reason}`);
-        }
-      }
-
-      function canAutoRecover() {
-        if (document.hidden) return false;
-        return !globalThis.navigator || globalThis.navigator.onLine !== false;
-      }
-
-      function recover(reason) {
-        if (navigating || recoveryScheduled) return;
-        if (!canAutoRecover()) {
-          deferredRecoveryReason = reason;
-          showRetry(reason);
-          return;
-        }
-        deferredRecoveryReason = '';
-        if (state().count < MAX_AUTO_RELOADS) {
-          recoveryScheduled = true;
-          window.__CHUNK_RECOVERY_PENDING = true;
-          // Let the failed request unwind before replacing the document.
-          setTimeout(() => reload(reason), 150);
-        } else {
-          showRetry(reason);
-        }
-      }
-
-      function progress(stage = 'unknown') {
-        if (window.__GAME_READY || navigating) return;
-        window.__COT_BOOT_HEARTBEAT_AT = Date.now();
-        if (stageTimer) clearTimeout(stageTimer);
-        if (stageRecoveryTimer) clearTimeout(stageRecoveryTimer);
-        stageTimer = setTimeout(() => {
-          if (!window.__GAME_READY) showRetry(`stall:${stage}`);
-        }, STAGE_NOTICE_MS);
-        stageRecoveryTimer = setTimeout(() => {
-          if (!window.__GAME_READY) recover(`stall:${stage}`);
-        }, STAGE_RECOVER_MS);
-      }
-
-      function isSameOriginGameCode(value) {
-        const text = String(value || '');
-        if (!text || /(?:^|\/)analytics(?:-[^/]*)?\.js(?:[?#:]|$)/i.test(text)) return false;
-        let origin = '';
-        try { origin = new URL(location.href).origin; } catch (_) { return false; }
-        const escaped = origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return new RegExp(`${escaped}/(?:assets|src)/[^\\s)]+\\.(?:m?js|ts)(?:[?#:]|$)`, 'i').test(text);
-      }
-
-      function isBootDocumentException(event) {
-        if (window.__GAME_READY || event.target !== window || !event.error) return false;
-        const filename = String(event.filename || '');
-        // Browsers may omit filename/stack details for a module that throws
-        // while its entry graph is evaluating. A real Error on the window
-        // before GAME_READY belongs to this document; cross-origin resource
-        // failures expose no Error object and extension URLs are rejected.
-        if (!filename) return true;
-        try {
-          return new URL(filename, location.href).origin === new URL(location.href).origin;
-        } catch (_) { return false; }
-      }
-
-      addEventListener('vite:preloadError', () => {
-        // Preventing this event tells Vite that the failed import was handled,
-        // so it resolves the import as `undefined`. That manufactured the
-        // later Object.entries/createKillCam errors seen on battle re-entry.
-        recover('preload');
-      });
-      addEventListener('error', (event) => {
-        const node = event.target;
-        const moduleScript = node && node.tagName === 'SCRIPT' && node.type === 'module';
-        const message = String(event.message || '');
-        const bootRuntime = !window.__GAME_READY
-          && (isSameOriginGameCode(`${event.filename || ''} ${event.error?.stack || ''}`)
-            || isBootDocumentException(event));
-        if (moduleScript || bootRuntime || /module script|dynamically imported module|module preload/i.test(message)) {
-          recover(bootRuntime ? 'boot-runtime' : 'module');
-        }
-      }, true);
-      addEventListener('unhandledrejection', (event) => {
-        const message = String(event.reason && (event.reason.message || event.reason) || '');
-        const bootRuntime = !window.__GAME_READY
-          && isSameOriginGameCode(`${message} ${event.reason?.stack || ''}`);
-        if (bootRuntime || /module script|dynamically imported module|module preload|failed to fetch/i.test(message)) {
-          recover(bootRuntime ? 'boot-promise' : 'module-promise');
-        }
-      });
-      const resumeDeferredRecovery = () => {
-        if (window.__GAME_READY || navigating) return;
-        if (deferredRecoveryReason && canAutoRecover()) {
-          const reason = deferredRecoveryReason;
-          deferredRecoveryReason = '';
-          recover(reason);
-        } else if (canAutoRecover()) {
-          progress(document.hidden ? 'background' : 'resumed');
-        }
-      };
-      addEventListener('visibilitychange', resumeDeferredRecovery);
-      addEventListener('online', resumeDeferredRecovery);
-
-      const health = setInterval(() => {
-        if (!window.__GAME_READY) return;
-        clearInterval(health);
-        if (stageTimer) clearTimeout(stageTimer);
-        if (stageRecoveryTimer) clearTimeout(stageRecoveryTimer);
-        // Keep the short-lived receipt. Clearing it immediately at ready made
-        // a persistently missing post-boot chunk eligible for another reload
-        // before the user could request it again.
-        try {
-          const url = new URL(location.href);
-          if (url.searchParams.has('_bootretry')) {
-            url.searchParams.delete('_bootretry');
-            history.replaceState(null, '', url.href);
-          }
-        } catch (_) { /* cosmetic */ }
-        setTimeout(() => {
-          if (!window.__GAME_READY || window.__CHUNK_RECOVERY_PENDING) return;
-          try { sessionStorage.removeItem(KEY); } catch (_) { /* storage may be blocked */ }
-        }, STABLE_READY_MS);
-      }, 500);
-      setTimeout(() => {
-        if (window.__GAME_READY) return;
-        showRetry('timeout');
-      }, WATCHDOG_NOTICE_MS);
-      setTimeout(() => {
-        if (window.__GAME_READY) return;
-        if (state().count < MAX_AUTO_RELOADS) recover('timeout');
-        else showRetry('timeout');
-      }, WATCHDOG_RECOVER_MS);
-
-      window.__COT_BOOT_RECOVERY = { recover, showRetry, progress, state };
-    })();
-  </script>
-</head>
-<body>
-  <div id="app"></div>
-
-  <div id="cot-boot" class="cot-boot-enter" data-entrance-state="playing">
-    <!-- Curated in-engine stills decode while hidden, then crossfade behind
-         this already-painted surface. Empty src attributes are intentional:
-         the boot controller owns fetch timing and never exposes a partial. -->
-    <div id="cot-boot-hero" data-hero-state="idle" aria-hidden="true">
-      <img class="hly" alt="" decoding="async" fetchpriority="low">
-      <img class="hly" alt="" decoding="async" fetchpriority="low">
-    </div>
-    <div class="cot-boot-inner">
-      <!-- Brand badge: v5 colored crest (master: public/brand/logo-mark.svg;
-           derived inline by tools/sync-brand-marks.mjs for zero round-trips). -->
-      <svg class="cot-boot-mark" viewBox="0 0 256 256" aria-label="Claude of Tanks" data-i18n-aria-label="aria.claudeoftanks">
-      <!-- GENERATED from public/brand/logo-mark.svg by tools/sync-brand-marks.mjs. -->
-  <!-- v5 (owner-directed): cleaned modern-MBT silhouette, closed bow, refined
-       running gear and gun, and a right-shifted vehicle with a protected clear zone. -->
-  <!-- Claude of Tanks v5 crest mark — COLORED PRIMARY (the one the game uses:
-       splash, garage, full lockups, and social cards). Owner-approved side-profile
-       composition — stylized modern MBT (original vector art) with the Claude
-       Code mascot (Anthropic; via thesvg.org — see docs/ATTRIBUTION.md)
-       commanding from the open hatch — in the game palette: dark steel field
-       (#151f29), steel-blue two-tone tank (v1 body tones #2a3947/#3a4c5f/
-       #4d637a), mascot #D97757, amber #f5b64b pennant/pinstripe/keel accents.
-       v5 (owner-directed cleanup; v3 archived in public/brand/v3-shield/):
-       tank rescaled and moved right to establish even optical margins, with a
-       closed wedge bow, coherent track loop, quieter wheel details, and a
-       coherent stepped cannon that remains fully inside the shield. Shield geometry
-       identical to logo-mark-bw.svg (keep in sync): one midline path stroked
-       ink band w16 + amber pinstripe w3 + field fill. Metal treatment:
-       logo-mark-metal.svg. -->
-  <defs>
-    <clipPath id="cotHatchClipC"><rect x="70" y="29" width="68" height="44"/></clipPath>
-  </defs>
-
-  <!-- ===== crest: ink band, amber pinstripe groove, dark steel field ===== -->
-  <path d="M34 26 H222 L236 40 V112 C236 174 196 214 128 238 C60 214 20 174 20 112 V40 Z"
-        fill="#151f29" stroke="#0b0f12" stroke-width="16" stroke-linejoin="miter"/>
-  <path d="M34 26 H222 L236 40 V112 C236 174 196 214 128 238 C60 214 20 174 20 112 V40 Z"
-        fill="none" stroke="#f5b64b" stroke-width="3"/>
-
-  <g transform="translate(3.5 24) scale(1.04)">
-
-    <!-- running gear: one closed, tapered track loop with six wheels -->
-    <path d="M48 107H174Q184 107 188 116L186 127Q184 137 174 138H50Q40 138 37 128L36 119Q37 109 48 107Z" fill="#0c1218"/>
-    <g fill="#33424f">
-      <circle cx="52" cy="122" r="10"/><circle cx="76.4" cy="122" r="10"/><circle cx="100.8" cy="122" r="10"/>
-      <circle cx="125.2" cy="122" r="10"/><circle cx="149.6" cy="122" r="10"/><circle cx="174" cy="122" r="10"/>
-    </g>
-    <g fill="#0c1218">
-      <circle cx="52" cy="122" r="3.2"/><circle cx="76.4" cy="122" r="3.2"/><circle cx="100.8" cy="122" r="3.2"/>
-      <circle cx="125.2" cy="122" r="3.2"/><circle cx="149.6" cy="122" r="3.2"/><circle cx="174" cy="122" r="3.2"/>
-    </g>
-    <!-- quiet gear detail: dished rims and balanced end-wheel rings -->
-    <g fill="none" stroke="#0c1218" stroke-width="1.8">
-      <circle cx="52" cy="122" r="6.4"/><circle cx="76.4" cy="122" r="6.4"/><circle cx="100.8" cy="122" r="6.4"/>
-      <circle cx="125.2" cy="122" r="6.4"/><circle cx="149.6" cy="122" r="6.4"/><circle cx="174" cy="122" r="6.4"/>
-    </g>
-    <circle cx="52" cy="122" r="8.4" fill="none" stroke="#0c1218" stroke-width="1.6"/>
-    <circle cx="174" cy="122" r="8.4" fill="none" stroke="#0c1218" stroke-width="1.6"/>
-    <!-- hull: deck, exposed side plate, and upper glacis read as separate planes. -->
-    <path d="M36 115 41 94H146L197 110 192 115Z" fill="#2a3947"/>
-    <path d="M38.5 103H145L191 112.5 188.5 115H36Z" fill="#243441"/>
-    <path d="M146 94 197 110 191 113 145 98Z" fill="#3d5062"/>
-    <path d="M41 95H145L193 110" fill="none" stroke="#4d637a" stroke-width="2.4" stroke-linecap="round"/>
-    <!-- restrained hull kit: rear exhaust, recessed side-access plates, bow light -->
-    <rect x="45" y="97.5" width="11" height="6.5" rx="1" fill="#1c2833"/>
-    <path d="M47 99.7h7M47 101.9h7" stroke="#0c1218" stroke-width="1.3"/>
-    <path d="M61 104.5H121L129 111.5H61Z" fill="#314454" stroke="#1a232d" stroke-width="1.2" stroke-linejoin="round"/>
-    <path d="M78 105v6M96 105v6M114 105v6" stroke="#1a232d" stroke-width="1.25"/>
-    <circle cx="64.5" cy="108" r="1.05" fill="#63798d"/><circle cx="125" cy="109.2" r="1.05" fill="#63798d"/>
-    <rect x="184.5" y="106.5" width="5" height="3.5" rx="0.9" fill="#7d90a3"/>
-
-    <!-- side skirt: layered over the lower hull seam, entirely below the glacis. -->
-    <path d="M42 114.5H181L178 118 173 126H46L42 122Z" fill="#3d5062" stroke="#0c1218" stroke-width="2.5" stroke-linejoin="round"/>
-    <g stroke="#1a232d" stroke-width="1.8">
-      <path d="M64.2 116V124M88.6 116V124M113 116V124M137.4 116V124M161.8 116V124"/>
-    </g>
-
-    <!-- turret: chamfered roof, raised bustle, armored cheek, and ring. -->
-    <path d="M58 92V78L61 76H79L84 72.5 128 74.5 141 78 154 94 150 97H75L70 92Z" fill="#3a4c5f"/>
-    <path d="M61 80h18M61 84.5h18M61 89h15" stroke="#0c1218" stroke-width="1.7"/>
-    <path d="M84 72.5 128 74.5 141 78 138.5 81 82 76.2Z" fill="#4d637a"/>
-    <path d="M112 79.2 140 81 151 94H130Z" fill="#314353"/>
-    <!-- turret kit: ring shadow, CITV periscope, recessed side-access panel -->
-    <path d="M75 94.2H150L148 97H75Z" fill="#1c2833"/>
-    <rect x="128" y="69.5" width="7.5" height="7.4" rx="1" fill="#1c2833"/>
-    <rect x="129.4" y="71.2" width="4.7" height="1.8" fill="#7d90a3"/>
-    <path d="M84 86.5H119L124 92H84Z" fill="#2b3947" stroke="#1c2833" stroke-width="1.1" stroke-linejoin="round"/>
-    <path d="M93 87v4.5M102 87v4.5M111 87v4.5" stroke="#1c2833" stroke-width="1.2"/>
-    <path d="M124.5 80.2 131 80.7 136 95H129.5Z" fill="#f5b64b"/>
-
-    <!-- deck fittings: antenna and a double-stroked mast seated in a roof base. -->
-    <rect x="50" y="89.5" width="6" height="5" rx="1" fill="#1c2833"/>
-    <path d="M53 89.5 Q48 76 43 60" stroke="#55697e" stroke-width="1.6" stroke-linecap="round" fill="none"/>
-    <circle cx="43" cy="60" r="1.1" fill="#7d90a3"/>
-    <path d="M69 74.5V31.5" stroke="#0c1218" stroke-width="3.4" stroke-linecap="round" fill="none"/>
-    <path d="M69 74.5V31.5" stroke="#7d90a3" stroke-width="1.45" stroke-linecap="round" fill="none"/>
-    <path d="M68.5 34C61 34.5 54.5 36.5 48.5 38.5 55 39.5 61.5 41.5 68.5 44Z" fill="#f5b64b" stroke="#0c1218" stroke-width="1.1" stroke-linejoin="round"/>
-    <circle cx="69" cy="31.5" r="1.7" fill="#f5b64b" stroke="#0c1218" stroke-width=".8"/>
-    <path d="M64 77 65.2 72.5H72.8L74 77Z" fill="#1c2833" stroke="#0c1218" stroke-width="1.2" stroke-linejoin="round"/>
-    <path d="M66.5 73.8h5" stroke="#7d90a3" stroke-width="1.1" stroke-linecap="round"/>
-
-    <!-- the commander: Claude Code mascot, faithful source path (brand orange;
-         legs clipped by the hatch), centered on x=106 with the hatch ring -->
-    <rect x="91" y="60" width="30" height="12" fill="#101820"/>
-    <g clip-path="url(#cotHatchClipC)">
-      <path clip-rule="evenodd" fill-rule="evenodd" fill="#D97757" stroke="#0b0f12"
-        stroke-width="1.5" paint-order="stroke" transform="translate(82.6 45.75) scale(1.95)"
-        d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"/>
-    </g>
-    <!-- hatch coaming: turret-colored rim with paired reflected and shadow seams. -->
-    <path d="M80.5 76.5 83.5 70.5H128.5L131.5 76.5Z" fill="#334758" stroke="#3a4c5f" stroke-width="2.2" stroke-linejoin="round"/>
-    <path d="M85.5 72H126.5" stroke="#667c91" stroke-width="1.1" stroke-linecap="round"/>
-    <path d="M84.8 74H127.2" stroke="#253541" stroke-width="1.1" stroke-linecap="round"/>
-
-    <!-- tanker helmet: articulated dome, padded crown, ear cups, and stowed panoramic goggles. -->
-    <path d="M89.5 49.8Q84.3 50.1 84.3 55.3V57.2Q84.3 59.4 88 60L91.5 56Z" fill="#243441" stroke="#0c1218" stroke-width="1.5" stroke-linejoin="round"/>
-    <path d="M122.5 49.8Q127.7 50.1 127.7 55.3V57.2Q127.7 59.4 124 60L120.5 56Z" fill="#243441" stroke="#0c1218" stroke-width="1.5" stroke-linejoin="round"/>
-    <path d="M87.8 55.6C88.2 47.2 92.6 41.4 99.4 39.5Q106 37.7 112.6 39.5C119.4 41.4 123.8 47.2 124.2 55.6Z" fill="#7d90a3" stroke="#0c1218" stroke-width="2.2" stroke-linejoin="round"/>
-    <path d="M98.2 41.2Q106 38.5 113.8 41.2L111.8 47.5H100.2Z" fill="#8fa2b3"/>
-    <path d="M106 39.3V45.4M97.6 42.1Q95.7 45 95.5 48.3M114.4 42.1Q116.3 45 116.5 48.3" fill="none" stroke="#4d637a" stroke-width="1.2" stroke-linecap="round"/>
-    <path d="M87.8 50.5Q89.5 47.8 92.5 47.5M119.5 47.5Q122.5 47.8 124.2 50.5" fill="none" stroke="#0e151d" stroke-width="3.2" stroke-linecap="round"/>
-    <path d="M88.3 50.1Q89.8 48.2 92.6 48M119.4 48Q122.2 48.2 123.7 50.1" fill="none" stroke="#556b80" stroke-width="1" stroke-linecap="round"/>
-    <!-- Unified lens rests on the crown; the raised center cutout is its nose indent. -->
-    <path d="M93 46.3Q106 44 119 46.3Q120.4 46.6 120.1 48L119.2 52.1Q119 53.4 117.5 53.6H110L106 50.9L102 53.6H94.5Q93 53.4 92.8 52.1L91.9 48Q91.6 46.6 93 46.3Z" fill="#385f7b" stroke="#0c1218" stroke-width="1.7" stroke-linejoin="round"/>
-    <path d="M94.5 47.4Q102.2 45.9 109.4 46.4" fill="none" stroke="#b8c9d5" stroke-width="1.05" stroke-linecap="round"/>
-    <circle cx="92.8" cy="49.6" r=".8" fill="#63798d"/><circle cx="119.2" cy="49.6" r=".8" fill="#63798d"/>
-    <path d="M85.2 55.2H126.8L125.4 59.4H86.6Z" fill="#2a3947" stroke="#0c1218" stroke-width="1.6" stroke-linejoin="round"/>
-    <path d="M89 56.4H123" stroke="#63798d" stroke-width="1.05" stroke-linecap="round"/>
-
-    <!-- main gun: mantlet, tapered sleeve, collar, evacuator, barrel, muzzle. -->
-    <g transform="translate(0 4) rotate(-10 140 82)">
-      <path d="M135 75.5H151L156 79V85L151 88.5H135Z" fill="#24313f"/>
-      <path d="M150 78.5 178 79.2V85.8L150 86.5Z" fill="#2f4151"/>
-      <path d="M153 79.8 176 80.3" stroke="#60768a" stroke-width="1.45" stroke-linecap="round"/>
-      <path d="M160 77.7H164L164.5 86.5H159.7Z" fill="#17212b"/>
-      <path d="M176.5 77.2H190Q193.5 77.2 193.5 80.3V84Q193.5 87 190 87H176.5Z" fill="#24313f"/>
-      <path d="M180 79.1H190" stroke="#60768a" stroke-width="1.45" stroke-linecap="round"/>
-      <path d="M192 79.3H206.5V84.9H192Z" fill="#2f4151"/>
-      <path d="M194 80.3H205" stroke="#60768a" stroke-width="1.15" stroke-linecap="round"/>
-      <path d="M205 78.1H211.5L212.5 85.9H205Z" fill="#3a4c5f" stroke="#0b0f12" stroke-width="1.8" stroke-linejoin="round"/>
-      <rect x="207.1" y="79.7" width="3.1" height="4.6" rx=".7" fill="#0c1218"/>
-    </g>
-  </g>
-</svg>
-
-      <div class="cot-boot-word">
-        <span class="l1">CLAUDE</span>
-        <span class="l2"><i></i><span>OF TANKS</span><i></i></span>
-      </div>
-      <div class="cot-boot-invite" id="cot-boot-invite" aria-live="polite"></div>
-      <div class="cot-boot-load">
-        <div class="cot-boot-meta">
-          <div class="cot-boot-stage" id="cot-boot-stage">Starting engine</div>
-          <div class="cot-boot-pct" id="cot-boot-pct">0%</div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>CoTFly — A fly plays Claude of Tanks</title>
+    <meta
+      name="description"
+      content="A neural fly pilot playing Claude of Tanks. Watch its sensory neurons, decisions, and motor commands live."
+    />
+    <meta name="theme-color" content="#141914" />
+    <link rel="canonical" href="https://fly.kevinliu.studio/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CoTFly" />
+    <meta property="og:title" content="CoTFly — A fly plays Claude of Tanks" />
+    <meta property="og:description" content="One tiny helmet. One very real tank. Watch a neural fly pilot drive, aim and fire from its miniature cockpit." />
+    <meta property="og:url" content="https://fly.kevinliu.studio/" />
+    <meta name="twitter:card" content="summary" />
+    <link rel="manifest" href="/cotfly.webmanifest" />
+    <link rel="icon" href="/cotfly.svg" />
+    <link rel="stylesheet" href="/src/fly/style.css" />
+  </head>
+  <body>
+    <svg class="icon-library" aria-hidden="true">
+      <defs>
+        <symbol id="i-play" viewBox="0 0 24 24">
+          <path d="m8 5 11 7-11 7z" />
+        </symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24">
+          <path d="M8 5v14M16 5v14" />
+        </symbol>
+        <symbol id="i-reset" viewBox="0 0 24 24">
+          <path d="M4 10a8 8 0 1 1 1 8M4 4v6h6" />
+        </symbol>
+        <symbol id="i-sugar" viewBox="0 0 24 24">
+          <path d="m13 2-9 12h7l-1 8 10-13h-8z" />
+        </symbol>
+        <symbol id="i-hand" viewBox="0 0 24 24">
+          <path
+            d="M8 12V5a2 2 0 0 1 4 0v7-8a2 2 0 0 1 4 0v8-5a2 2 0 0 1 4 0v8c0 5-4 7-7 7-4 0-6-4-9-8a2 2 0 0 1 3-2l1 1"
+          />
+        </symbol>
+        <symbol id="i-brain" viewBox="0 0 24 24">
+          <path
+            d="M12 4c-4-4-8 0-7 3-4 1-4 6-1 8-1 5 5 7 8 4V4m0 0c4-4 8 0 7 3 4 1 4 6 1 8 1 5-5 7-8 4M5 7l3 2m-4 6 4-1m11-7-3 2m4 6-4-1"
+          />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24">
+          <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8 12h8M12 8v8" />
+        </symbol>
+        <symbol id="i-speed" viewBox="0 0 24 24">
+          <path d="M4 18a10 10 0 1 1 16 0M12 12l5-5M5 12H3m18 0h-2M12 4V2" />
+          <circle cx="12" cy="12" r="2" />
+        </symbol>
+        <symbol id="i-target" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="7" />
+          <path d="M12 1v6m0 10v6M1 12h6m10 0h6" />
+          <circle cx="12" cy="12" r="1" />
+        </symbol>
+        <symbol id="i-shell" viewBox="0 0 24 24">
+          <path d="M9 20V8c0-3 3-6 3-6s3 3 3 6v12M7 20h10M9 14h6" />
+        </symbol>
+        <symbol id="i-eye" viewBox="0 0 24 24">
+          <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" />
+          <circle cx="12" cy="12" r="3" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v6m0-10v1" />
+        </symbol>
+        <symbol id="i-expand" viewBox="0 0 24 24">
+          <path d="M4 9V4h5m6 0h5v5m0 6v5h-5M9 20H4v-5" />
+        </symbol>
+        <symbol id="i-fly" viewBox="0 0 24 24">
+          <ellipse cx="12" cy="13" rx="3" ry="7" />
+          <path
+            d="M9 10C0 0 0 17 9 15m6-5C24 0 24 17 15 15M9 17l-5 4m11-4 5 4M9 12l-6 2m12-2 6 2M10 6 8 3m6 3 2-3"
+          />
+        </symbol>
+      </defs>
+    </svg>
+    <div class="lab">
+      <header class="masthead" aria-label="Tank command controls">
+        <a class="wordmark" href="/" aria-label="CoTFly"
+          ><svg><use href="#i-fly" /></svg
+          ><span>CoTFly<small>Autonomous tank command</small></span></a
+        >
+        <div class="controls">
+          <label class="tank-picker"
+            ><span>VEHICLE</span
+            ><select
+              id="tank-select"
+              aria-label="Tank to deploy"
+              title="Vehicle for the next deployment"
+            >
+              <option value="m1a1">M1A1 Abrams</option>
+              <option value="leo2a6">Leopard 2A6</option>
+              <option value="t90a">T-90A</option>
+              <option value="m2a2_bradley">M2A2 Bradley · Missiles</option>
+              <option value="bmp2">BMP-2 · Missiles</option>
+              <option value="m551_sheridan">M551 Sheridan · Missiles</option>
+            </select></label
+          ><button id="pause" class="button" aria-label="Pause simulation" title="Pause simulation" disabled>
+            <svg><use href="#i-pause" /></svg><span>Pause</span></button
+          ><button id="sugar" class="button" aria-label="Sugar boost" title="Sugar boost" disabled>
+            <svg><use href="#i-sugar" /></svg><span>Sugar</span></button
+          ><button id="takeover" class="button" aria-label="Take control" title="Take control" disabled>
+            <svg><use href="#i-hand" /></svg><span>Take control</span></button
+          ><button
+            id="restart"
+            class="button square"
+            disabled
+            aria-label="New fly"
+            title="New fly"
+          >
+            <svg><use href="#i-reset" /></svg>
+          </button>
         </div>
-        <div class="cot-boot-bar"><div class="cot-boot-fill" id="cot-boot-fill"></div></div>
-        <div class="cot-boot-ticks" id="cot-boot-ticks"></div>
-      </div>
-
-      <div class="cot-boot-tip" id="cot-boot-tip"></div>
-      <div class="cot-boot-links" data-cot-boot-control>
-        <button class="cot-boot-link" id="cot-credits-open" type="button">
-          <svg class="cot-boot-link-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <rect x="3" y="5" width="18" height="14" rx="2" />
-            <circle cx="9" cy="11" r="2.2" />
-            <path d="M5.8 16c.7-1.7 1.8-2.6 3.2-2.6s2.5.9 3.2 2.6M14.8 10h3.4M14.8 14h3.4" />
-          </svg>
-          <span data-i18n="boot.credits">Credits</span>
+        <div class="header-status">
+          <span class="dot" id="pulse"></span
+          ><span id="session-state">READY TO DEPLOY</span
+          ><div class="mission-clock"><span>Mission time</span><time id="timer">00:00</time></div>
+        </div>
+        <button
+          id="about-open"
+          class="icon-button"
+          aria-label="About this simulation"
+          title="About this simulation"
+        >
+          <svg><use href="#i-info" /></svg>
         </button>
-        <a class="cot-boot-link" href="https://github.com/Kevin-Liu-01/Claude-of-Tanks" target="_blank" rel="noopener noreferrer" aria-label="Claude of Tanks on GitHub" data-i18n-aria-label="publicNav.githubAria">
-          <svg class="cot-boot-link-icon github" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M12 .8A11.4 11.4 0 0 0 8.4 23c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.4-1.3-5.4-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.1 1.2A10.8 10.8 0 0 1 12 5.8c1 0 1.9.1 2.8.4C17 4.7 18 5 18 5c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.4 5.7.4.4.8 1.1.8 2.1v3.3c0 .3.2.7.8.6A11.4 11.4 0 0 0 12 .8Z" />
-          </svg>
-          <span>GitHub</span>
-          <span class="cot-github-stars"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m8 1.2 2.1 4.2 4.7.7-3.4 3.3.8 4.7L8 11.9l-4.2 2.2.8-4.7-3.4-3.3 4.7-.7L8 1.2Z"/></svg><span data-github-stars data-github-stars-state="loading" aria-busy="true" aria-label="Loading GitHub star count"></span></span>
-        </a>
-      </div>
-      <div class="cot-boot-gate" id="cot-boot-gate" data-i18n="boot.pressAnyKey">Press any key to continue</div>
-      <button class="cot-boot-retry" id="cot-boot-retry" type="button" data-i18n="boot.retry">Retry loading</button>
+      </header>
+      <nav class="panel-switch" aria-label="Console display">
+        <button data-panel="battle" aria-pressed="true">
+          <svg><use href="#i-target" /></svg>BATTLE</button
+        ><button data-panel="fly" aria-pressed="false">
+          <svg><use href="#i-fly" /></svg>PILOT</button
+        ><button data-panel="brain" aria-pressed="false">
+          <svg><use href="#i-brain" /></svg>NEURAL
+        </button>
+      </nav>
+      <main aria-label="Tank console">
+        <section class="experiment" aria-label="Live fly and battlefield">
+          <article class="specimen panel">
+            <div class="panel-top">
+              <span
+                ><svg><use href="#i-fly" /></svg>FLY
+                <b id="specimen-id">001</b></span
+              ><span class="status" id="specimen-status">IDLE</span>
+            </div>
+            <div class="specimen-stage">
+              <canvas
+                id="specimen"
+                aria-label="Responsive fruit fly on a trackball. Drag to rotate; scroll to zoom."
+              ></canvas>
+              <div class="specimen-caption">
+                <span>Drag to orbit · Scroll to zoom</span>
+              </div>
+              <div class="sugar-pop" id="sugar-pop" role="status">
+                SUGAR BOOST
+              </div>
+              <div class="view-buttons">
+                <button data-view="side" aria-pressed="true" class="selected">
+                  Orbit</button
+                ><button data-view="top" aria-pressed="false">Top</button>
+              </div>
+            </div>
+            <div class="motor-deck">
+              <div>
+                <span>THROTTLE</span><b id="throttle">0%</b>
+                <div class="bar"><i id="throttle-bar"></i></div>
+              </div>
+              <div>
+                <span>STEERING</span><b id="steer">0%</b>
+                <div class="bar"><i id="steer-bar"></i></div>
+              </div>
+            </div>
+            <div
+              class="station-readout"
+              aria-label="Physical controls operated by the fly"
+            >
+              <span data-key="look" title="Look joystick"
+                ><svg><use href="#i-eye" /></svg>LOOK</span
+              ><span data-key="aim" title="Aim pad"
+                ><svg><use href="#i-target" /></svg>AIM</span
+              ><span data-key="fire" title="Fire button"
+                ><svg><use href="#i-shell" /></svg>FIRE</span
+              ><span data-key="missile" title="Missile selector"
+                ><svg><use href="#i-sugar" /></svg>MISSILE</span
+              ><span data-key="repair" title="Repair kit"
+                ><svg><use href="#i-shield" /></svg>REPAIR</span
+              >
+            </div>
+            <div class="equipment-status">
+              <span>REPAIR <b id="repair-status">Ready</b></span
+              ><span>MISSILES <b id="missile-status">Not equipped</b></span>
+            </div>
+            <div class="intent">
+              <span class="dot"></span
+              ><span id="intent">Awaiting deployment</span>
+            </div>
+          </article>
+          <article class="arena panel">
+            <div class="panel-top">
+              <span
+                ><svg><use href="#i-target" /></svg
+                ><span id="tank-label">M1A1 ABRAMS · DESERT</span></span
+              >
+              <div class="arena-tools">
+                <span class="status" id="arena-status">STANDBY</span
+                ><button
+                  id="vision"
+                  class="icon-button"
+                  aria-label="Compound-eye overlay"
+                  title="Compound-eye overlay"
+                  aria-pressed="false"
+                >
+                  <svg><use href="#i-eye" /></svg></button
+                ><button
+                  id="expand"
+                  class="icon-button"
+                  aria-label="Expand battlefield"
+                  title="Expand battlefield"
+                  aria-pressed="false"
+                >
+                  <svg><use href="#i-expand" /></svg>
+                </button>
+              </div>
+            </div>
+            <div class="monitor" id="monitor">
+              <div id="arena-idle" class="arena-idle">
+                <div class="idle-reticle" aria-hidden="true">
+                  <svg><use href="#i-target" /></svg>
+                </div>
+                <span class="eyebrow">BATTLE SYSTEM / STANDBY</span>
+                <button id="wake" class="button primary">
+                  <svg><use href="#i-play" /></svg
+                  ><span>DEPLOY FLY</span></button
+                ><span class="load-note"
+                  >Select vehicle · Deploy autonomous pilot</span
+                >
+              </div>
+              <iframe
+                id="game"
+                title="Claude of Tanks battlefield"
+                allow="autoplay; fullscreen; gamepad"
+                hidden
+              ></iframe>
+              <div id="eye-grid" class="eye-grid" hidden></div>
+              <div id="loading" class="loading-veil" hidden>
+                <svg class="loading-icon"><use href="#i-brain" /></svg>
+                <h3>Preparing the battlefield</h3>
+                <p id="loading-text" role="status">Loading Claude of Tanks…</p>
+                <button id="retry" class="button" hidden>
+                  Retry deployment
+                </button>
+              </div>
+              <div id="arena-tag" class="arena-tag" hidden>
+                <span class="dot"></span>FLY CONTROL
+              </div>
+            </div>
+          </article>
+        </section>
+        <section class="stats" aria-label="Battle telemetry">
+          <article>
+            <svg class="stat-icon"><use href="#i-speed" /></svg>
+            <div>
+              <span class="stat-label">SPEED</span>
+              <div class="stat-value">
+                <b id="speed">0.0</b><small>km/h</small>
+              </div>
+            </div>
+            <svg class="spark" viewBox="0 0 180 38" aria-label="Recent speed">
+              <path id="speed-trace" d="M0 34H180" />
+            </svg>
+          </article>
+          <article>
+            <svg class="stat-icon"><use href="#i-shield" /></svg>
+            <div class="health-metric">
+              <span class="stat-label">ARMOR INTEGRITY</span>
+              <div class="stat-value">
+                <b id="health">—</b><small id="health-unit">HP</small>
+              </div>
+              <div class="bar health"><i id="health-bar"></i></div>
+            </div>
+          </article>
+          <article>
+            <svg class="stat-icon"><use href="#i-shell" /></svg>
+            <div>
+              <span class="stat-label">WEAPON</span>
+              <div class="stat-value"><b id="reload">Standby</b></div>
+              <span class="stat-note" id="fire-state">Awaiting deployment</span>
+            </div>
+          </article>
+          <article>
+            <svg class="stat-icon"><use href="#i-target" /></svg>
+            <div>
+              <span class="stat-label">TARGET</span>
+              <div class="stat-value">
+                <b id="target-range">—</b><small id="target-unit">m</small>
+              </div>
+              <span class="stat-note" id="target-state">No visual contact</span>
+            </div>
+          </article>
+        </section>
+        <section class="brain-panel panel" aria-label="Live neuron simulation">
+          <div class="panel-top">
+            <span
+              ><svg><use href="#i-brain" /></svg>NEURAL LINK<span
+                class="model-tag"
+                >124 CELLS</span
+              ></span
+            ><span id="brain-status" class="status">STANDBY</span>
+          </div>
+          <div class="brain-layout">
+            <div class="circuit">
+              <div class="cluster-heading">
+                <span>MaleCNS anatomy</span><span><b id="active-count">0</b> / 124 active</span>
+              </div>
+              <canvas
+                id="brain-network"
+                tabindex="0"
+                aria-label="Rotatable anatomical neuron cluster. Drag or use arrow keys to rotate, scroll to zoom. Select a cell below to inspect."
+              ></canvas>
+              <div class="brain-tools"><button id="brain-context" aria-pressed="true" title="Show anatomical context">Context</button><button id="brain-reset" title="Reset brain view"><svg><use href="#i-reset" /></svg>Reset view</button></div>
+              <div class="cluster-hint">Drag to orbit · Scroll to zoom</div>
+              <div class="circuit-footer">
+                <span
+                  ><i class="key purple"></i>mAL · Inhibitory
+                  <i class="key amber"></i>pC1 · P1-related</span
+                ><span>P1 output <b id="brain-output">0%</b></span>
+              </div>
+            </div>
+            <aside class="neuron-detail">
+              <label class="cell-picker"
+                >Active neuron<select
+                  id="cell-select"
+                  aria-label="Follow or select an active neuron"
+                ></select
+              ></label>
+              <div class="detail-top">
+                <span id="neuron-group">Waiting for activity</span
+                ><span id="neuron-index">—</span>
+              </div>
+              <h2 id="neuron-name">Awaiting spikes</h2>
+              <div class="activation">
+                <b id="neuron-value">0</b
+                ><span>Hz<small>FIRING RATE</small></span>
+              </div>
+              <div class="bar"><i id="neuron-bar"></i></div>
+              <dl class="neuron-metrics">
+                <div><dt>Voltage</dt><dd><b id="cell-voltage">−65.0</b><span>mV</span></dd></div>
+                <div><dt>Spikes</dt><dd id="cell-spikes">0</dd></div>
+                <div><dt>Connections</dt><dd id="cell-links">—</dd></div>
+              </dl>
+              <p id="neuron-description" class="sr-only">Live firing cells will appear here.</p>
+            </aside>
+            <div class="neural-history">
+              <div class="history-label"><span>Population activity</span><span>124 cells · Last 6 seconds</span></div>
+              <canvas id="brain-history" aria-label="Six second live spike raster for all 124 spiking neurons"></canvas>
+              <div class="history-axis"><span>−6 s</span><span>−3 s</span><span>Now</span></div>
+            </div>
+          </div>
+        </section>
+      </main>
+      <footer>
+        <span><i class="console-led"></i>SOLO SYSTEM <b>LOCAL</b></span
+        ><span>MaleCNS · Live model · Game-adapted controls</span
+        ><button id="sources-open">MODEL / SOURCES ↗</button>
+      </footer>
     </div>
-    <div class="cot-boot-foot">Claude of Tanks &middot; {{COT_APP_VERSION}}</div>
-  </div>
-
-  <dialog class="cot-credits" id="cot-credits" data-cot-boot-control aria-labelledby="cot-credits-title">
-    <div class="cot-credits-grid">
-      <img class="cot-credits-portrait" src="/brand/og-logo-transparent.png" alt="Claude of Tanks insignia" data-i18n-alt="index.credits.alt.claudeoftanksinsignia" />
-      <div class="cot-credits-copy">
-        <button class="cot-credits-close" id="cot-credits-close" type="button" aria-label="Close credits" data-i18n-aria-label="aria.closecredits" data-i18n-aria="credits.closeAria">&times;</button>
-        <span class="cot-credits-kicker" data-i18n="credits.kicker">Creator / designer / director</span>
-        <h2 id="cot-credits-title">Kevin B. Liu</h2>
-        <p data-i18n="credits.body1">I designed and built Claude of Tanks as an experiment in how far one person can take an original browser game with persistent agent collaboration. Claude and Codex were development tools, not co-authors.</p>
-        <p data-i18n="credits.body2">The vehicles, simulation, combat systems, interface, performance work, testing, documentation, and production pipeline were developed end-to-end through a long-running multi-agent Claude and Codex workflow. Every selectable tank is original procedural model work by Kevin B. Liu.</p>
-        <div class="cot-credits-actions">
-          <a class="cot-boot-link" href="https://github.com/Kevin-Liu-01" target="_blank" rel="noopener noreferrer" data-i18n="credits.links.github">Kevin on GitHub</a>
-          <a class="cot-boot-link" href="https://github.com/Kevin-Liu-01/Claude-of-Tanks" target="_blank" rel="noopener noreferrer" aria-label="Claude of Tanks source code on GitHub"><span data-i18n="credits.links.source">Source code</span><span class="cot-github-stars"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m8 1.2 2.1 4.2 4.7.7-3.4 3.3.8 4.7L8 11.9l-4.2 2.2.8-4.7-3.4-3.3 4.7-.7L8 1.2Z"/></svg><span data-github-stars data-github-stars-state="loading" aria-busy="true" aria-label="Loading GitHub star count"></span></span></a>
-          <a class="cot-boot-link" href="https://github.com/Kevin-Liu-01/Claude-of-Tanks/blob/main/NOTICE.md" target="_blank" rel="noopener noreferrer" data-i18n="credits.links.notice">Authorship notice</a>
-        </div>
+    <dialog id="about">
+      <button id="about-close" class="dialog-close" aria-label="Close about">
+        ×</button
+      ><span class="eyebrow">CoTFly</span>
+      <h2>Inside the pilot</h2>
+      <p>
+        124 identified MaleCNS neurons and 1,106 measured anatomical
+        connections, from Fruitless’s reduced circuit, run a live leaky
+        integrate-and-fire simulation at 1 ms steps. The cluster shows their
+        real soma coordinates and sampled neurites. Dim background points
+        provide anatomical context and are not simulated.
+      </p>
+      <p>
+        Voltages, spikes and firing rates come from the running model. Its
+        P1-related population output modulates driving gain, alongside an
+        authored 24-channel motor controller. Battle inputs, physiological
+        parameters and tank mappings are game adaptations, not measured fly
+        behavior. This is a reduced circuit, not Fruitless’s 166,606-neuron
+        whole-CNS experiment.
+      </p>
+      <p>
+        The middle legs grip the steering wheel. Forelegs reach aim, look, fire,
+        missile and repair controls before they activate. Kits, ammunition,
+        reloads, turret aiming and damage use the normal game rules. Choose your
+        next tank, then deploy or start a new fly.
+      </p>
+      <p>
+        MaleCNS data: FlyEM / HHMI Janelia, University of Cambridge / MRC LMB,
+        and Google Research, CC BY 4.0. Our changes include decimated neurites,
+        live spiking dynamics and a game controller. Inhibitory effects are
+        model assumptions. The fly and cockpit are original procedural geometry.
+      </p>
+      <div class="source-list">
+        <a href="https://github.com/Kevin-Liu-01/CoTFly" target="_blank" rel="noreferrer">CoTFly · Source code ↗</a>
+        <a
+          href="https://github.com/nicodunks/fruitless"
+          target="_blank"
+          rel="noreferrer"
+          >Fruitless · Circuit source ↗</a
+        ><a
+          href="https://male-cns.janelia.org/"
+          target="_blank"
+          rel="noreferrer"
+          >MaleCNS · Measured connectome ↗</a
+        ><a
+          href="https://creativecommons.org/licenses/by/4.0/"
+          target="_blank"
+          rel="noreferrer"
+          >Data license · CC BY 4.0 ↗</a
+        >
+        <a
+          href="https://github.com/TuragaLab/flybody"
+          target="_blank"
+          rel="noreferrer"
+          >Turaga Lab · flybody ↗</a
+        ><a
+          href="https://github.com/google-deepmind/mujoco_menagerie/tree/main/flybody"
+          target="_blank"
+          rel="noreferrer"
+          >MuJoCo Menagerie ↗</a
+        ><a
+          href="https://www.nature.com/articles/s41586-025-09029-4"
+          target="_blank"
+          rel="noreferrer"
+          >Whole-body physics simulation of fruit fly locomotion ↗</a
+        ><a
+          href="https://github.com/NeLy-EPFL/flygym"
+          target="_blank"
+          rel="noreferrer"
+          >EPFL · NeuroMechFly v2 ↗</a
+        >
       </div>
-    </div>
-  </dialog>
-
-  <script>
-    (() => {
-      document.documentElement.dataset.baseTitle = document.title;
-      const params = new URLSearchParams(location.search);
-      const roomCode = String(params.get('room') || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
-        .replace(/[01IO]/g, (char) => ({ 0: 'Q', 1: 'L', I: 'L', O: 'Q' })[char] || char)
-        .slice(0, 6);
-      const hostName = String(params.get('host') || '').trim().replace(/\s+/g, ' ').slice(0, 24);
-      const chineseRoute = /^\/cn(?:\/|$)/.test(location.pathname);
-      const invite = document.getElementById('cot-boot-invite');
-      const boot = document.getElementById('cot-boot');
-      if (roomCode.length === 6 && invite && boot) {
-        const battleLabel = String(params.get('mode') || '').toLowerCase() === 'lan'
-          ? (chineseRoute ? 'LAN 对战' : 'LAN Battle')
-          : (chineseRoute ? '私人对战' : 'Private Battle');
-        const invitationTitle = hostName
-          ? (chineseRoute ? '加入 ' + hostName + ' 的 ' + battleLabel : 'Join ' + hostName + '’s ' + battleLabel)
-          : (chineseRoute ? '加入私人对战 ' + roomCode : 'Join Private Battle ' + roomCode);
-        invite.textContent = invitationTitle;
-        invite.classList.add('on');
-        boot.classList.add('has-invite');
-        document.title = invitationTitle + ' — Claude of Tanks';
-      }
-
-      const dialog = document.getElementById('cot-credits');
-      const open = document.getElementById('cot-credits-open');
-      const close = document.getElementById('cot-credits-close');
-      if (!dialog || !open || !close) return;
-      open.addEventListener('click', (event) => {
-        event.stopPropagation();
-        if (!dialog.open) dialog.showModal();
-      });
-      close.addEventListener('click', (event) => { event.stopPropagation(); dialog.close(); });
-      dialog.addEventListener('click', (event) => {
-        if (event.target === dialog) dialog.close();
-      });
-      dialog.addEventListener('close', () => open.focus());
-    })();
-  </script>
-
-  <script type="module" src="/src/main.ts"></script>
-</body>
+    </dialog>
+    <script type="module" src="/src/fly/main.ts"></script>
+  </body>
 </html>

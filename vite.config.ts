@@ -86,11 +86,11 @@ const rewriteRoutes = (documentRoot: string): Connect.NextHandleFunction => (req
     res.end();
     return;
   }
-  if (path === '/fly' || path === '/fly/' || path === '/') {
-    req.url = '/fly.html' + query;
-  } else if (path === '/game.html' && !isExistingProjectDocument(path, documentRoot)) {
-    // Development keeps the inherited game source at index.html.
-    req.url = '/index.html' + query;
+  if (path === '/fly' || path === '/fly/' || path === '/fly.html') {
+    res.statusCode = 308;
+    res.setHeader('Location', '/' + query);
+    res.end();
+    return;
   } else if (path === '/404.html') {
     forceNotFoundStatus(res);
     req.url = '/404.html' + query;
@@ -142,7 +142,7 @@ export default defineConfig({
         const requestedLocale = requestUrl.searchParams.get('_cot_locale');
         const localePath = resolveLocalePath(requestUrl.pathname);
         const sourceHtml = resolve(ctx?.filename || '').split('/').at(-1) || '';
-        if (sourceHtml === 'fly.html') return html;
+        if (sourceHtml === 'index.html') return html;
         const route = localePath.route ?? publicRouteForEntry(sourceHtml);
         if (!route) return html;
         const locale = requestedLocale === 'zh-CN' || localePath.locale === 'zh-CN' ? 'zh-CN' : 'en-US';
@@ -166,7 +166,7 @@ export default defineConfig({
       // invokes HTML transforms for every multi-page input; injecting the
       // game graph into /home, /docs or /gallery makes a presentation visit
         // visit download the complete simulation and fleet source tree.
-        if (resolve(ctx?.filename || '') !== resolve(process.cwd(), 'index.html')) return [];
+        if (resolve(ctx?.filename || '') !== resolve(process.cwd(), 'game.html')) return [];
         return reachableSrcModules(process.cwd()).map((href) => ({
           tag: 'link',
           attrs: { rel: 'modulepreload', href },
@@ -188,7 +188,7 @@ export default defineConfig({
       // surfaces. Presentation routes never inherit the playable boot graph.
       input: {
         main: resolve(process.cwd(), 'index.html'),
-        fly: resolve(process.cwd(), 'fly.html'),
+        game: resolve(process.cwd(), 'game.html'),
         notFound: resolve(process.cwd(), '404.html'),
         home: resolve(process.cwd(), 'home.html'),
         docs: resolve(process.cwd(), 'docs.html'),
