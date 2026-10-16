@@ -1,4 +1,5 @@
 import type { RuntimeValue } from './runtimeTypes.ts';
+import './googleAnalytics.ts';
 
 const selfHostedBuild = import.meta.env.VITE_SELF_HOSTED === '1';
 const mountAnalytics = (): Promise<RuntimeValue> => import('@vercel/analytics').then(({ inject }) => inject({
